@@ -1,0 +1,51 @@
+# Application Configuration
+app:
+  title: "AI Smart Advisor"
+  description: "Personalized concierge chatbot for students"
+  port: 8501
+
+# LLM Configuration
+llm:
+  provider: "openai"
+  model: "gpt-4-turbo-preview"
+  embedding_model: "text-embedding-3-small"
+  temperature: 0.7
+  max_tokens: 2000
+
+# Vector Database Configuration
+vector_db:
+  type: "chroma"  # Options: "pinecone" or "chroma"
+  chroma:
+    persist_directory: "./data/chroma_db"
+    collection_name: "jsom_catalog"
+  pinecone:
+    index_name: "jsom-catalog"
+    dimension: 1536
+    metric: "cosine"
+
+# RAG Configuration
+rag:
+  chunk_size: 1000
+  chunk_overlap: 200
+  top_k_results: 5
+  similarity_threshold: 0.7
+
+# Data Sources
+data_sources:
+  jsom_catalog:
+    url: "https://catalog.utdallas.edu/previous-years/2024-2025/undergraduate/programs/undergraduate-degree-plans"
+    update_frequency: "weekly"
+    source_of_truth: true
+
+# Accessibility Configuration
+accessibility:
+  ada_compliant: true
+  aria_labels: true
+  keyboard_navigation: true
+  screen_reader_support: true
+
+# Structured Data Format
+structured_data:
+  format: "json-ld"
+  schema_type: "schema.org"
+  enable_markup: true

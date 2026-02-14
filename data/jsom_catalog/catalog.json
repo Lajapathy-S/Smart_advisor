@@ -1,0 +1,81 @@
+{
+  "degrees": [
+    {
+      "name": "Business Administration",
+      "level": "undergraduate",
+      "total_credits": 120,
+      "core_courses": [
+        {
+          "code": "BUAD 1301",
+          "name": "Introduction to Business",
+          "credits": 3
+        },
+        {
+          "code": "BUAD 2301",
+          "name": "Business Statistics",
+          "credits": 3
+        },
+        {
+          "code": "BUAD 3301",
+          "name": "Business Communication",
+          "credits": 3
+        },
+        {
+          "code": "BUAD 4301",
+          "name": "Business Strategy",
+          "credits": 3
+        }
+      ],
+      "electives": [
+        {
+          "code": "BUAD 3XXX",
+          "name": "Business Elective",
+          "credits": 3
+        }
+      ],
+      "prerequisites": {
+        "BUAD 3301": ["BUAD 1301"],
+        "BUAD 4301": ["BUAD 3301", "BUAD 2301"]
+      }
+    },
+    {
+      "name": "Information Systems",
+      "level": "undergraduate",
+      "total_credits": 120,
+      "core_courses": [
+        {
+          "code": "IS 2305",
+          "name": "Introduction to Information Systems",
+          "credits": 3
+        },
+        {
+          "code": "IS 3310",
+          "name": "Database Management",
+          "credits": 3
+        },
+        {
+          "code": "IS 3320",
+          "name": "Systems Analysis and Design",
+          "credits": 3
+        },
+        {
+          "code": "IS 4330",
+          "name": "Information Systems Project Management",
+          "credits": 3
+        }
+      ],
+      "electives": [
+        {
+          "code": "IS 4XXX",
+          "name": "IS Elective",
+          "credits": 3
+        }
+      ],
+      "prerequisites": {
+        "IS 3310": ["IS 2305"],
+        "IS 3320": ["IS 2305"],
+        "IS 4330": ["IS 3310", "IS 3320"]
+      }
+    }
+  ]
+}

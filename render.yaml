@@ -1,0 +1,20 @@
+# Render deployment configuration
+services:
+  - type: web
+    name: ai-smart-advisor
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run src/frontend/app.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+        required: false
+      - key: PINECONE_ENVIRONMENT
+        sync: false
+        required: false
+      - key: VECTOR_DB_TYPE
+        value: CHROMA
+      - key: CHROMA_PERSIST_DIR
+        value: ./data/chroma_db

@@ -1,0 +1,97 @@
+{
+  "careers": [
+    {
+      "title": "Business Analyst",
+      "description": "Analyzes business processes and requirements to help organizations improve efficiency and effectiveness.",
+      "category": "Business",
+      "technical_skills": [
+        "Data Analysis",
+        "SQL",
+        "Excel",
+        "Business Process Modeling",
+        "Requirements Gathering",
+        "Data Visualization"
+      ],
+      "soft_skills": [
+        "Communication",
+        "Problem Solving",
+        "Critical Thinking",
+        "Stakeholder Management",
+        "Presentation Skills"
+      ],
+      "career_path": [
+        "Junior Business Analyst",
+        "Business Analyst",
+        "Senior Business Analyst",
+        "Lead Business Analyst"
+      ],
+      "salary_range": {
+        "entry": "$50,000 - $65,000",
+        "mid": "$65,000 - $85,000",
+        "senior": "$85,000 - $110,000"
+      }
+    },
+    {
+      "title": "Information Systems Manager",
+      "description": "Manages information systems and technology infrastructure for organizations.",
+      "category": "Information Technology",
+      "technical_skills": [
+        "Systems Administration",
+        "Database Management",
+        "Network Management",
+        "Project Management",
+        "IT Security",
+        "Cloud Computing"
+      ],
+      "soft_skills": [
+        "Leadership",
+        "Team Management",
+        "Strategic Planning",
+        "Communication",
+        "Problem Solving"
+      ],
+      "career_path": [
+        "IT Support Specialist",
+        "Systems Administrator",
+        "Information Systems Manager",
+        "IT Director"
+      ],
+      "salary_range": {
+        "entry": "$55,000 - $70,000",
+        "mid": "$70,000 - $95,000",
+        "senior": "$95,000 - $130,000"
+      }
+    },
+    {
+      "title": "Data Analyst",
+      "description": "Analyzes data to help organizations make data-driven decisions.",
+      "category": "Data Science",
+      "technical_skills": [
+        "Python",
+        "SQL",
+        "Data Visualization",
+        "Statistical Analysis",
+        "Excel",
+        "Machine Learning Basics"
+      ],
+      "soft_skills": [
+        "Analytical Thinking",
+        "Communication",
+        "Attention to Detail",
+        "Problem Solving",
+        "Presentation Skills"
+      ],
+      "career_path": [
+        "Junior Data Analyst",
+        "Data Analyst",
+        "Senior Data Analyst",
+        "Data Scientist"
+      ],
+      "salary_range": {
+        "entry": "$55,000 - $70,000",
+        "mid": "$70,000 - $90,000",
+        "senior": "$90,000 - $120,000"
+      }
+    }
+  ]
+}
