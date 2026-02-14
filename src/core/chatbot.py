@@ -3,7 +3,7 @@ Main Chatbot Interface
 Coordinates between different modules (degree planning, career mentorship, skills analysis).
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 from .rag_engine import RAGEngine
 import json
