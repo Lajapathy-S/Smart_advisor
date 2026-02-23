@@ -4,8 +4,9 @@ JSOM Smart Advisor - Resume-based course recommendation.
 """
 
 import os
-from pathlib import Path
 import re
+from pathlib import Path
+from typing import Optional
 
 import requests
 import streamlit as st
