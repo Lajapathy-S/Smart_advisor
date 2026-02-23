@@ -1,71 +1,62 @@
 """
 Streamlit Frontend Application
-Main interface for the AI Smart Advisor chatbot.
+JSOM Smart Advisor - Resume-based course recommendation.
 """
 
-import streamlit as st
-import sys
 import os
 from pathlib import Path
+import re
+
+import requests
+import streamlit as st
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-import json
-import pandas as pd
+from langchain_openai import ChatOpenAI
+from pypdf import PdfReader
+
 
 # Load environment variables
 project_root = Path(__file__).parent.parent.parent
 env_path = project_root / "config" / ".env"
 
-# Load .env if it exists (for local development)
 if env_path.exists():
     load_dotenv(dotenv_path=env_path)
 else:
-    # For production, load from environment variables directly
     load_dotenv()
-
-# Add parent directory to path
-sys.path.append(str(project_root))
-
-from src.core.chatbot import Chatbot
-from src.degree_planning.planner import DegreePlanner
-from src.career_mentorship.mentor import CareerMentor
-from src.skills_analysis.analyzer import SkillsAnalyzer
 
 
 # Page configuration
 st.set_page_config(
-    page_title="AI Smart Advisor",
+    page_title="JSOM Smart Advisor",
     page_icon="🎓",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="centered",
 )
 
-# Custom CSS for accessibility and styling
-st.markdown("""
+
+# Minimal, accessible styling
+st.markdown(
+    """
 <style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #1f77b4;
+    .title {
+        font-size: 3rem;
+        font-weight: 800;
         text-align: center;
+        margin-bottom: 0.25rem;
+        color: #0f172a;
+    }
+    .subtitle {
+        text-align: center;
+        font-size: 1rem;
+        color: #4b5563;
         margin-bottom: 2rem;
     }
-    .feature-card {
-        background-color: #f8f9fa;
-        padding: 1.5rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-        border-left: 4px solid #1f77b4;
+    .card {
+        background-color: #ffffff;
+        padding: 2rem;
+        border-radius: 0.75rem;
+        box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+        border: 1px solid #e5e7eb;
     }
-    .stButton>button {
-        width: 100%;
-        border-radius: 0.5rem;
-        transition: all 0.3s;
-    }
-    .stButton>button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-    }
-    /* Accessibility improvements */
     .sr-only {
         position: absolute;
         width: 1px;
@@ -77,393 +68,282 @@ st.markdown("""
         white-space: nowrap;
         border-width: 0;
     }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-        border-radius: 0.5rem;
-        color: white;
-        text-align: center;
+    .stButton>button {
+        width: 100%;
+        border-radius: 999px;
+        padding: 0.6rem 1.5rem;
+        font-weight: 600;
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-# Initialize session state
-if 'chatbot' not in st.session_state:
-    if not os.getenv("OPENAI_API_KEY"):
-        st.session_state.chatbot = None
-    else:
-        try:
-            st.session_state.chatbot = Chatbot()
-        except Exception as e:
-            st.session_state.chatbot = None
-    
-    st.session_state.messages = []
-    st.session_state.user_context = {
-        "degree": None,
-        "year": None,
-        "completed_courses": [],
-        "skills": {"technical": [], "soft": []}
-    }
-    st.session_state.current_tab = "Chat"
 
-# Initialize modules
-@st.cache_resource
-def get_modules():
-    """Initialize and cache modules."""
+PROGRAM_URLS = {
+    "MS Accounting": "https://accounting.utdallas.edu/ms-accounting-flex/curriculum/",
+    "MS Business Analytics": "https://catalog.utdallas.edu/2025/graduate/programs/jsom/business-analytics",
+    "MS Information Technology Management": "https://catalog.utdallas.edu/2025/graduate/programs/jsom/information-technology-management",
+    "MS Energy Management": "https://catalog.utdallas.edu/2025/graduate/programs/jsom/energy-management",
+    "MS Finance": "https://catalog.utdallas.edu/2025/graduate/programs/jsom/finance",
+    "MS Financial Technology and Analytics": "https://catalog.utdallas.edu/2025/graduate/programs/jsom/financial-technology-and-analytics",
+    "MS Healthcare Leadership and Management": "https://catalog.utdallas.edu/2025/graduate/programs/jsom/healthcare-management#highlight_1",
+    "MS International Management Studies": "https://catalog.utdallas.edu/2025/graduate/programs/jsom/international-management-studies",
+    "MS Management Science": "https://catalog.utdallas.edu/2025/graduate/programs/jsom/management-science",
+    "MS Marketing": "https://catalog.utdallas.edu/2025/graduate/programs/jsom/marketing#course-requirements",
+    "MS Supply Chain Management": "https://catalog.utdallas.edu/2025/graduate/programs/jsom/supply-chain-management",
+    "MS Systems Engineering and Management": "https://catalog.utdallas.edu/2025/graduate/programs/jsom/supply-chain-management",
+    "BS Accounting": "https://catalog.utdallas.edu/2025/undergraduate/programs/jsom/accounting#highlight_1",
+    "BS Business Administration": "https://catalog.utdallas.edu/2025/undergraduate/programs/jsom/business-administration#business-economics-concentration",
+    "BS Business Analytics and AI": "https://catalog.utdallas.edu/2025/undergraduate/programs/jsom/business-analytics#degree-requirements",
+    "BS Computer Information Systems and Technology": "https://catalog.utdallas.edu/2025/undergraduate/programs/jsom/computer-information-systems-and-technology",
+    "BS Cybersecurity and Risk Management": "https://catalog.utdallas.edu/2025/undergraduate/programs/jsom/cybersecurity-and-risk-management/?hl=Core%20Curriculum%20Requirements:#highlight_1",
+    "BS Finance": "https://catalog.utdallas.edu/2025/undergraduate/programs/jsom/finance",
+    "BS Global Business": "https://catalog.utdallas.edu/2025/undergraduate/programs/jsom/global-business",
+    "BS Healthcare Management": "https://catalog.utdallas.edu/2025/undergraduate/programs/jsom/healthcare-management#highlight_1",
+    "BS Human Resource Management": "https://catalog.utdallas.edu/2025/undergraduate/programs/jsom/human-resource-management",
+    "BS Marketing": "https://catalog.utdallas.edu/2025/undergraduate/programs/jsom/marketing",
+    "BS Supply Chain Management and Analytics": "https://catalog.utdallas.edu/2025/undergraduate/programs/jsom/supply-chain-management",
+    "MBA": "https://catalog.utdallas.edu/2025/graduate/programs/jsom/business-administration",
+}
+
+
+@st.cache_resource(show_spinner=False)
+def get_llm() -> Optional[ChatOpenAI]:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
     try:
-        return {
-            "degree_planner": DegreePlanner(),
-            "career_mentor": CareerMentor(),
-            "skills_analyzer": SkillsAnalyzer()
-        }
-    except Exception as e:
-        st.error(f"Error initializing modules: {e}")
+        return ChatOpenAI(
+            model="gpt-4o-mini",
+            temperature=0.4,
+            openai_api_key=api_key,
+        )
+    except Exception:
         return None
 
-modules = get_modules()
 
-# Sidebar for user context and navigation
-with st.sidebar:
-    st.title("🎓 AI Smart Advisor")
-    st.caption("Your Personalized Student Concierge")
-    st.markdown("---")
-    
-    # Navigation tabs
-    tab_option = st.radio(
-        "Navigation",
-        ["💬 Chat", "📋 Degree Plan", "💼 Career", "🔍 Skills Analysis"],
-        key="nav_tabs",
-        label_visibility="collapsed"
-    )
-    st.session_state.current_tab = tab_option
-    
-    st.markdown("---")
-    
-    st.subheader("👤 User Profile")
-    
-    # Degree selection
-    degree = st.selectbox(
-        "Select Your Degree",
-        ["Business Administration", "Information Systems", "Accounting", "Finance", "Marketing"],
-        key="degree_select",
-        help="Select your degree program"
-    )
-    st.session_state.user_context["degree"] = degree
-    
-    # Year selection
-    year = st.selectbox(
-        "Current Year",
-        [1, 2, 3, 4],
-        key="year_select",
-        help="Select your current academic year"
-    )
-    st.session_state.user_context["year"] = year
-    
-    # Completed courses
-    with st.expander("📚 Completed Courses"):
-        completed_courses_input = st.text_input(
-            "Enter course codes (comma-separated)",
-            value=",".join(st.session_state.user_context["completed_courses"]),
-            help="Enter course codes you have completed, separated by commas",
-            label_visibility="collapsed"
-        )
-        if completed_courses_input:
-            st.session_state.user_context["completed_courses"] = [
-                c.strip() for c in completed_courses_input.split(",") if c.strip()
-            ]
-        
-        if st.session_state.user_context["completed_courses"]:
-            st.write("**Your completed courses:**")
-            for course in st.session_state.user_context["completed_courses"]:
-                st.write(f"• {course}")
-    
-    # Skills input
-    with st.expander("🛠️ Your Skills"):
-        technical_skills = st.text_input(
-            "Technical Skills (comma-separated)",
-            value=",".join(st.session_state.user_context["skills"]["technical"]),
-            help="Enter your technical skills"
-        )
-        soft_skills = st.text_input(
-            "Soft Skills (comma-separated)",
-            value=",".join(st.session_state.user_context["skills"]["soft"]),
-            help="Enter your soft skills"
-        )
-        
-        if technical_skills:
-            st.session_state.user_context["skills"]["technical"] = [
-                s.strip() for s in technical_skills.split(",") if s.strip()
-            ]
-        if soft_skills:
-            st.session_state.user_context["skills"]["soft"] = [
-                s.strip() for s in soft_skills.split(",") if s.strip()
-            ]
-    
-    st.markdown("---")
-    
-    # Clear chat button
-    if st.button("🗑️ Clear Chat History", use_container_width=True):
-        st.session_state.messages = []
-        st.success("Chat history cleared!")
-        st.rerun()
-    
-    st.markdown("---")
-    st.caption("Data sourced from official JSOM catalog")
+@st.cache_resource(show_spinner=False)
+def fetch_program_context() -> str:
+    """Fetch and lightly clean text from all JSOM program URLs."""
+    parts = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; JSOM-Smart-Advisor/1.0)"
+    }
+    for name, url in PROGRAM_URLS.items():
+        try:
+            resp = requests.get(url, timeout=20, headers=headers)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+            main = soup.find("main") or soup.body or soup
+            text = " ".join(main.stripped_strings)
+            # Limit per-program text to keep prompt size reasonable
+            text = text[:4000]
+            parts.append(f"PROGRAM: {name}\nURL: {url}\n{text}")
+        except Exception:
+            continue
+    return "\n\n".join(parts)
 
-# Main content area based on selected tab
-if st.session_state.current_tab == "💬 Chat":
-    st.markdown('<h1 class="main-header">💬 Chat with AI Advisor</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="sr-only">AI Smart Advisor chatbot interface for degree planning, career mentorship, and skills gap analysis</p>', unsafe_allow_html=True)
-    
-    # Display chat messages
-    chat_container = st.container()
-    with chat_container:
-        if not st.session_state.messages:
-            st.info("👋 Welcome! I'm your AI Smart Advisor. Ask me about:")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.markdown("""
-                <div class="feature-card">
-                    <h3>📋 Degree Planning</h3>
-                    <p>Get personalized course recommendations based on your degree requirements</p>
-                </div>
-                """, unsafe_allow_html=True)
-            with col2:
-                st.markdown("""
-                <div class="feature-card">
-                    <h3>💼 Career Guidance</h3>
-                    <p>Learn about career paths, required skills, and job market insights</p>
-                </div>
-                """, unsafe_allow_html=True)
-            with col3:
-                st.markdown("""
-                <div class="feature-card">
-                    <h3>🔍 Skills Analysis</h3>
-                    <p>Identify skills gaps and get recommendations for career readiness</p>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-                
-                # Display structured data if available
-                if "structured_data" in message:
-                    with st.expander("📊 View Structured Data (JSON-LD)"):
-                        st.json(message["structured_data"])
-    
-    # Chat input
-    if st.session_state.chatbot:
-        user_input = st.chat_input(
-            "Ask me about degree planning, career guidance, or skills analysis...",
-            key="chat_input"
-        )
-        
-        if user_input:
-            # Add user message to chat
-            st.session_state.messages.append({"role": "user", "content": user_input})
-            
-            # Process message
-            with st.spinner("🤔 Thinking..."):
-                try:
-                    response = st.session_state.chatbot.process_message(
-                        user_input,
-                        st.session_state.user_context
-                    )
-                    
-                    # Add assistant response
-                    response_text = response.get("answer", "I'm sorry, I couldn't process that request.")
-                    
-                    # Format response with sources if available
-                    if response.get("sources"):
-                        response_text += "\n\n**📚 Sources:**"
-                        for i, source in enumerate(response.get("sources", [])[:3], 1):
-                            response_text += f"\n{i}. {source.page_content[:200]}..."
-                    
-                    message_to_add = {
-                        "role": "assistant",
-                        "content": response_text
-                    }
-                    
-                    # Add structured data if available
-                    if response.get("structured_data"):
-                        message_to_add["structured_data"] = response["structured_data"]
-                    
-                    st.session_state.messages.append(message_to_add)
-                except Exception as e:
-                    st.error(f"Error processing message: {e}")
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": "I encountered an error. Please try again or check your configuration."
-                    })
-            
-            st.rerun()
-    else:
+
+def extract_text_from_pdf(file) -> str:
+    reader = PdfReader(file)
+    texts = []
+    for page in reader.pages:
+        try:
+            texts.append(page.extract_text() or "")
+        except Exception:
+            continue
+    return "\n".join(texts)
+
+
+def extract_resume_text(uploaded_file) -> str:
+    """Extract plain text from uploaded resume (PDF or TXT)."""
+    if uploaded_file is None:
+        return ""
+
+    filename = uploaded_file.name.lower()
+    if filename.endswith(".pdf"):
+        return extract_text_from_pdf(uploaded_file)
+    # Fallback: treat as text
+    try:
+        return uploaded_file.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+
+def extract_skills_from_resume(text: str) -> list[str]:
+    """Heuristic skill extraction without LLM (looks for 'Skills' section + known keywords)."""
+    text_lower = text.lower()
+
+    # Try to find a 'Skills' section
+    skills_candidates: list[str] = []
+    match = re.search(r"skills\\s*[:\\n]", text_lower)
+    if match:
+        section = text_lower[match.end() :]
+        section = section.split("\\n\\n", 1)[0]
+        tokens = re.split(r"[\\n,;•|]", section)
+        skills_candidates.extend(t.strip() for t in tokens if t.strip())
+
+    # Known technical/soft skills to look for
+    known_skills = [
+        "python",
+        "sql",
+        "excel",
+        "tableau",
+        "power bi",
+        "r",
+        "java",
+        "c++",
+        "c#",
+        "javascript",
+        "machine learning",
+        "deep learning",
+        "data analysis",
+        "data engineering",
+        "cloud",
+        "aws",
+        "azure",
+        "gcp",
+        "spark",
+        "hadoop",
+        "linux",
+        "git",
+        "docker",
+        "kubernetes",
+        "statistics",
+        "accounting",
+        "finance",
+        "marketing",
+        "supply chain",
+        "project management",
+        "leadership",
+        "communication",
+        "presentation",
+        "teamwork",
+    ]
+
+    for skill in known_skills:
+        if skill in text_lower and skill not in skills_candidates:
+            skills_candidates.append(skill)
+
+    # Clean up
+    final_skills = []
+    seen = set()
+    for s in skills_candidates:
+        s_clean = re.sub(r"[^a-z0-9+#./ ]", "", s.lower()).strip()
+        if 2 <= len(s_clean) <= 40 and s_clean not in seen:
+            seen.add(s_clean)
+            final_skills.append(s_clean)
+    return final_skills
+
+
+def build_recommendation_prompt(skills: list[str], goal: str, programs_context: str) -> str:
+    skills_str = ", ".join(skills) if skills else "not clearly specified"
+    return f"""
+You are the JSOM Smart Advisor at UT Dallas.
+
+Student goal:
+- Target role: {goal}
+- Current skills: {skills_str}
+
+Below is information about JSOM graduate and undergraduate programs and their course requirements.
+Use ONLY this information to recommend specific subjects (courses) from these programs that will
+help the student prepare for the target role.
+
+For each recommended course, clearly state:
+- Course name (and code if available)
+- Which JSOM program it belongs to
+- Why it is relevant for the target role
+
+Focus especially on courses that build the missing skills relative to the target role.
+
+JSOM PROGRAMS AND COURSES CONTEXT:
+{programs_context}
+
+Now provide a concise, structured recommendation:
+1. List the most relevant JSOM programs for this role.
+2. Under each program, list 3–8 high-impact courses.
+3. Briefly explain why these courses help the student become a strong candidate for the role.
+"""
+
+
+def main():
+    llm = get_llm()
+
+    st.markdown('<h1 class="title">JSOM Smart Advisor</h1>', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="subtitle">Upload your resume, tell me your target role (e.g., '
+        '"Data Engineer"), and I will recommend JSOM subjects that prepare you for that role.</p>',
+        unsafe_allow_html=True,
+    )
+
+    if not llm:
         st.warning(
-            "**Chat is not available** — add your **OPENAI_API_KEY** in Streamlit Cloud "
-            "**Settings → Secrets** (or in `config/.env` when running locally) to enable the AI chat. "
-            "You can still use **Degree Plan**, **Career**, and **Skills Analysis** tabs."
+            "To enable recommendations, add your **OPENAI_API_KEY** in Streamlit Cloud "
+            "**Settings → Secrets** (or in `config/.env` locally)."
         )
 
-elif st.session_state.current_tab == "📋 Degree Plan":
-    st.markdown('<h1 class="main-header">📋 Degree Planning</h1>', unsafe_allow_html=True)
-    
-    if modules and st.session_state.user_context["degree"]:
-        degree = st.session_state.user_context["degree"]
-        year = st.session_state.user_context["year"]
-        completed = st.session_state.user_context["completed_courses"]
-        
-        if st.button("🔄 Generate Degree Plan", type="primary", use_container_width=True):
-            with st.spinner("Generating your personalized degree plan..."):
-                try:
-                    plan = modules["degree_planner"].create_course_path(degree, year, completed)
-                    
-                    if "error" not in plan:
-                        # Display overview
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Degree", plan.get("degree", "N/A"))
-                        with col2:
-                            st.metric("Current Year", plan.get("current_year", "N/A"))
-                        with col3:
-                            st.metric("Completed Courses", len(completed))
-                        
-                        # Display semester plan
-                        st.subheader("📅 Semester Plan")
-                        for semester in plan.get("semester_plan", []):
-                            with st.expander(f"Semester {semester['semester']} ({semester['total_credits']} credits)"):
-                                df = pd.DataFrame(semester["courses"])
-                                st.dataframe(df[["code", "name", "credits"]], use_container_width=True)
-                        
-                        # Display recommended path
-                        st.subheader("🎯 Recommended Course Path")
-                        if plan.get("recommended_path"):
-                            df = pd.DataFrame(plan["recommended_path"])
-                            st.dataframe(df[["code", "name", "credits"]], use_container_width=True)
-                    else:
-                        st.error(plan.get("error", "Unknown error"))
-                except Exception as e:
-                    st.error(f"Error generating degree plan: {e}")
-    else:
-        st.info("👈 Please select your degree in the sidebar to generate a degree plan.")
+    with st.container():
+        st.markdown('<div class="card">', unsafe_allow_html=True)
 
-elif st.session_state.current_tab == "💼 Career":
-    st.markdown('<h1 class="main-header">💼 Career Mentorship</h1>', unsafe_allow_html=True)
-    
-    if modules:
-        job_title = st.text_input("Enter a job title to explore", placeholder="e.g., Business Analyst, Data Analyst")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("🔍 Get Career Info", use_container_width=True):
-                if job_title:
-                    with st.spinner("Fetching career information..."):
-                        try:
-                            career_info = modules["career_mentor"].get_career_info(job_title)
-                            
-                            if "error" not in career_info:
-                                st.subheader(f"📊 {career_info.get('title', job_title)}")
-                                st.write(career_info.get('description', ''))
-                                
-                                col_a, col_b = st.columns(2)
-                                with col_a:
-                                    st.write("**Technical Skills:**")
-                                    for skill in career_info.get('technical_skills', []):
-                                        st.write(f"• {skill}")
-                                
-                                with col_b:
-                                    st.write("**Soft Skills:**")
-                                    for skill in career_info.get('soft_skills', []):
-                                        st.write(f"• {skill}")
-                                
-                                if career_info.get('career_path'):
-                                    st.subheader("🚀 Career Path")
-                                    for i, level in enumerate(career_info['career_path'], 1):
-                                        st.write(f"{i}. {level}")
-                            else:
-                                st.error(career_info.get("error"))
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-        
-        with col2:
-            if st.button("📈 View Career Trajectory", use_container_width=True):
-                if job_title:
-                    with st.spinner("Analyzing career trajectory..."):
-                        try:
-                            trajectory = modules["career_mentor"].get_career_trajectory(job_title)
-                            
-                            if "error" not in trajectory:
-                                st.subheader("Career Trajectory")
-                                st.json(trajectory)
-                            else:
-                                st.error(trajectory.get("error"))
-                        except Exception as e:
-                            st.error(f"Error: {e}")
+        resume_file = st.file_uploader(
+            "Upload your resume",
+            type=["pdf", "txt"],
+            help="Upload a recent version of your resume (PDF or TXT).",
+        )
 
-elif st.session_state.current_tab == "🔍 Skills Analysis":
-    st.markdown('<h1 class="main-header">🔍 Skills Gap Analysis</h1>', unsafe_allow_html=True)
-    
-    if modules:
-        target_job = st.text_input("Enter target job title", placeholder="e.g., Business Analyst")
-        
-        if st.button("🔍 Analyze Skills Gap", type="primary", use_container_width=True):
-            if target_job and st.session_state.user_context["skills"]:
-                with st.spinner("Analyzing your skills gap..."):
-                    try:
-                        student_profile = {
-                            "technical_skills": st.session_state.user_context["skills"]["technical"],
-                            "soft_skills": st.session_state.user_context["skills"]["soft"]
-                        }
-                        
-                        analysis = modules["skills_analyzer"].analyze_gap(student_profile, target_job)
-                        
-                        if "error" not in analysis:
-                            gap_analysis = analysis.get("gap_analysis", {})
-                            
-                            # Display metrics
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("Technical Coverage", f"{gap_analysis.get('technical_coverage', 0):.1f}%")
-                            with col2:
-                                st.metric("Soft Skills Coverage", f"{gap_analysis.get('soft_coverage', 0):.1f}%")
-                            with col3:
-                                st.metric("Overall Readiness", f"{gap_analysis.get('overall_readiness', 0):.1f}%")
-                            
-                            # Display gaps
-                            col_a, col_b = st.columns(2)
-                            with col_a:
-                                st.subheader("❌ Missing Technical Skills")
-                                for skill in gap_analysis.get('technical_gap', []):
-                                    st.write(f"• {skill}")
-                            
-                            with col_b:
-                                st.subheader("❌ Missing Soft Skills")
-                                for skill in gap_analysis.get('soft_gap', []):
-                                    st.write(f"• {skill}")
-                            
-                            # Display recommendations
-                            st.subheader("💡 Recommendations")
-                            for rec in analysis.get('recommendations', [])[:5]:
-                                with st.expander(f"{rec.get('skill', 'Skill')} ({rec.get('priority', 'medium').upper()} priority)"):
-                                    st.write(f"**Type:** {rec.get('type', 'N/A')}")
-                                    st.write(f"**Estimated Time:** {rec.get('estimated_time', 'N/A')}")
-                                    st.write("**Suggestions:**")
-                                    for suggestion in rec.get('suggestions', []):
-                                        st.write(f"• {suggestion}")
-                        else:
-                            st.error(analysis.get("error"))
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+        target_role = st.text_input(
+            "What role are you aiming for?",
+            placeholder="e.g., Data Engineer, Business Analyst, Product Manager",
+        )
+
+        if st.button("Get JSOM Subject Recommendations"):
+            if not resume_file:
+                st.warning("Please upload your resume.")
+            elif not target_role.strip():
+                st.warning("Please enter your target role (for example, 'Data Engineer').")
+            elif not llm:
+                st.error(
+                    "Recommendations are disabled because no OpenAI API key is configured. "
+                    "Please set `OPENAI_API_KEY` in Streamlit secrets."
+                )
             else:
-                st.warning("Please enter a target job title and add your skills in the sidebar.")
+                with st.spinner("Analyzing your resume and JSOM programs..."):
+                    resume_text = extract_resume_text(resume_file)
+                    skills = extract_skills_from_resume(resume_text)
+                    programs_context = fetch_program_context()
 
-# Footer with accessibility information
-st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: #666; font-size: 0.9rem;">
-    <p>✅ This application adheres to ADA compliance standards. 
-    For accessibility assistance, please contact support.</p>
-    <p>📚 Data sourced from official JSOM catalog (Source of Truth)</p>
+                    prompt = build_recommendation_prompt(skills, target_role, programs_context)
+
+                    try:
+                        response = llm.invoke(prompt)
+                        answer = response.content if hasattr(response, "content") else str(response)
+                    except Exception as e:
+                        answer = (
+                            "I encountered an error while generating recommendations. "
+                            "Please try again or check your API configuration."
+                        )
+                        st.error(str(e))
+
+                if skills:
+                    st.subheader("Skills detected from your resume")
+                    st.write(", ".join(skills))
+
+                st.subheader("Recommended JSOM Subjects for Your Goal")
+                st.markdown(answer)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown(
+        """
+<div style="text-align: center; color: #6b7280; font-size: 0.85rem;">
+    <p>JSOM Smart Advisor • Uses official JSOM program pages as the source of truth for course information.</p>
 </div>
-""", unsafe_allow_html=True)
+""",
+        unsafe_allow_html=True,
+    )
+
+
+if __name__ == "__main__":
+    main()
