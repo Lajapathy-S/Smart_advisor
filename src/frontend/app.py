@@ -6,8 +6,6 @@ JSOM Smart Advisor - Resume-based course recommendation.
 import os
 import re
 from pathlib import Path
-from typing import Optional
-
 import requests
 import streamlit as st
 from bs4 import BeautifulSoup
@@ -110,7 +108,7 @@ PROGRAM_URLS = {
 
 
 @st.cache_resource(show_spinner=False)
-def get_llm() -> Optional[ChatOpenAI]:
+def get_llm():
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return None
