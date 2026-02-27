@@ -10,6 +10,7 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from pypdf import PdfReader
 
@@ -109,6 +110,18 @@ PROGRAM_URLS = {
 
 @st.cache_resource(show_spinner=False)
 def get_llm():
+    # Prefer Gemini (free tier, no card required)
+    google_key = os.getenv("GOOGLE_API_KEY")
+    if google_key:
+        try:
+            return ChatGoogleGenerativeAI(
+                model="gemini-2.0-flash",
+                temperature=0.4,
+                google_api_key=google_key,
+            )
+        except Exception:
+            pass
+    # Fallback: OpenAI
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return None
@@ -236,12 +249,15 @@ def extract_skills_from_resume(text: str) -> list[str]:
     return final_skills
 
 
-def build_recommendation_prompt(skills: list[str], goal: str, programs_context: str) -> str:
+def build_recommendation_prompt(
+    pursuing: str, skills: list[str], goal: str, programs_context: str
+) -> str:
     skills_str = ", ".join(skills) if skills else "not clearly specified"
     return f"""
 You are the JSOM Smart Advisor at UT Dallas.
 
 Student goal:
+- What they are pursuing: {pursuing}
 - Target role: {goal}
 - Current skills: {skills_str}
 
@@ -271,19 +287,25 @@ def main():
 
     st.markdown('<h1 class="title">JSOM Smart Advisor</h1>', unsafe_allow_html=True)
     st.markdown(
-        '<p class="subtitle">Upload your resume, tell me your target role (e.g., '
-        '"Data Engineer"), and I will recommend JSOM subjects that prepare you for that role.</p>',
+        '<p class="subtitle">Tell us what you’re pursuing, upload your resume, and we’ll recommend '
+        'JSOM subjects that prepare you for your goal.</p>',
         unsafe_allow_html=True,
     )
 
     if not llm:
         st.warning(
-            "To enable recommendations, add your **OPENAI_API_KEY** in Streamlit Cloud "
-            "**Settings → Secrets** (or in `config/.env` locally)."
+            "To enable recommendations, add **GOOGLE_API_KEY** (Gemini, free) in Streamlit Cloud "
+            "**Settings → Secrets**, or **OPENAI_API_KEY** in `config/.env` locally."
         )
 
     with st.container():
         st.markdown('<div class="card">', unsafe_allow_html=True)
+
+        pursuing = st.text_input(
+            "What are you pursuing?",
+            placeholder="e.g., Masters in Business Analytics, MS in Data Science, MBA, BS in Finance",
+            help="Degree or program you’re interested in (e.g., Masters in Business Analytics).",
+        )
 
         resume_file = st.file_uploader(
             "Upload your resume",
@@ -297,14 +319,15 @@ def main():
         )
 
         if st.button("Get JSOM Subject Recommendations"):
-            if not resume_file:
+            if not pursuing.strip():
+                st.warning("Please specify what you’re pursuing (e.g., Masters in Business Analytics).")
+            elif not resume_file:
                 st.warning("Please upload your resume.")
             elif not target_role.strip():
                 st.warning("Please enter your target role (for example, 'Data Engineer').")
             elif not llm:
                 st.error(
-                    "Recommendations are disabled because no OpenAI API key is configured. "
-                    "Please set `OPENAI_API_KEY` in Streamlit secrets."
+                    "Recommendations are disabled. Set GOOGLE_API_KEY (Gemini) or OPENAI_API_KEY in Streamlit secrets."
                 )
             else:
                 with st.spinner("Analyzing your resume and JSOM programs..."):
@@ -312,7 +335,9 @@ def main():
                     skills = extract_skills_from_resume(resume_text)
                     programs_context = fetch_program_context()
 
-                    prompt = build_recommendation_prompt(skills, target_role, programs_context)
+                    prompt = build_recommendation_prompt(
+                        pursuing.strip(), skills, target_role.strip(), programs_context
+                    )
 
                     try:
                         response = llm.invoke(prompt)

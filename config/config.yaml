@@ -6,11 +6,13 @@ app:
 
 # LLM Configuration
 llm:
-  provider: "openai"
-  model: "gpt-4-turbo-preview"
-  embedding_model: "text-embedding-3-small"
+  provider: "google"          # using Google Gemini
+  model: "gemini-2.0-flash"   # chat model
+  embedding_model: "text-embedding-004"
   temperature: 0.7
   max_tokens: 2000
+  google_api_key: os.getenv("AIzaSyD4KIucZoygsGDgcTCIFmrR6XjfoVAH-Co")
+  
 
 # Vector Database Configuration
 vector_db:
