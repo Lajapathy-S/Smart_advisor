@@ -256,10 +256,17 @@ Below is information about JSOM graduate and undergraduate programs and their co
 Use ONLY this information to recommend specific subjects (courses) from these programs that will
 help the student prepare for the target role.
 
+IMPORTANT – Course codes are required:
+- For EVERY recommended course you MUST include the official course code (e.g. ACCT 6301, OPRE 6366, MIS 6324, MKT 6301).
+- Extract the course code from the JSOM context below when available (look for patterns like "CODE 6XXX", "ACCT 6301", "OPRE 6366").
+- Format each course line as: **Course code** – Course name (e.g. **OPRE 6366** – Operations Management).
+- If the context does not list a code for a course, use the closest match or state "[Code from catalog: check program page]".
+
 For each recommended course, clearly state:
-- Course name (and code if available)
-- Which JSOM program it belongs to
-- Why it is relevant for the target role
+1. Course code (required, e.g. ACCT 6301, OPRE 6366)
+2. Course name
+3. Which JSOM program it belongs to
+4. Why it is relevant for the target role
 
 Focus especially on courses that build the missing skills relative to the target role.
 
@@ -268,7 +275,7 @@ JSOM PROGRAMS AND COURSES CONTEXT:
 
 Now provide a concise, structured recommendation:
 1. List the most relevant JSOM programs for this role.
-2. Under each program, list 3–8 high-impact courses.
+2. Under each program, list 3–8 high-impact courses. Every course MUST show its course code first (e.g. **MIS 6324** – Database Management).
 3. Briefly explain why these courses help the student become a strong candidate for the role.
 """
 
