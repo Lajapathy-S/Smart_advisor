@@ -6,12 +6,10 @@ app:
 
 # LLM Configuration
 llm:
-  provider: "google"          # using Google Gemini
-  model: "gemini-2.0-flash"   # chat model
-  embedding_model: "text-embedding-004"
+  provider: "xai"              # xAI Grok
+  model: "grok-2-latest"       # chat model
   temperature: 0.7
   max_tokens: 2000
-  google_api_key: os.getenv("AIzaSyD4KIucZoygsGDgcTCIFmrR6XjfoVAH-Co")
   
 
 # Vector Database Configuration

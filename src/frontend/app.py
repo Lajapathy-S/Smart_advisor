@@ -10,8 +10,7 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
+from langchain_xai import ChatXAI
 from pypdf import PdfReader
 
 
@@ -110,26 +109,18 @@ PROGRAM_URLS = {
 
 @st.cache_resource(show_spinner=False)
 def get_llm():
-    # Prefer Gemini (free tier, no card required)
-    google_key = os.getenv("GOOGLE_API_KEY")
-    if google_key:
-        try:
-            return ChatGoogleGenerativeAI(
-                model="gemini-2.0-flash",
-                temperature=0.4,
-                google_api_key=google_key,
-            )
-        except Exception:
-            pass
-    # Fallback: OpenAI
-    api_key = os.getenv("OPENAI_API_KEY")
+    """
+    Return Grok (xAI) model if XAI_API_KEY is set.
+    """
+    api_key = os.getenv("XAI_API_KEY")
     if not api_key:
         return None
+    model = os.getenv("XAI_MODEL", "grok-2-latest")
     try:
-        return ChatOpenAI(
-            model="gpt-4o-mini",
+        return ChatXAI(
+            model=model,
             temperature=0.4,
-            openai_api_key=api_key,
+            max_retries=2,
         )
     except Exception:
         return None
@@ -294,8 +285,8 @@ def main():
 
     if not llm:
         st.warning(
-            "To enable recommendations, add **GOOGLE_API_KEY** (Gemini, free) in Streamlit Cloud "
-            "**Settings → Secrets**, or **OPENAI_API_KEY** in `config/.env` locally."
+            "To enable recommendations, add **XAI_API_KEY** (Grok) in Streamlit Cloud "
+            "**Settings → Secrets**, or in `config/.env` locally."
         )
 
     with st.container():
@@ -327,7 +318,7 @@ def main():
                 st.warning("Please enter your target role (for example, 'Data Engineer').")
             elif not llm:
                 st.error(
-                    "Recommendations are disabled. Set GOOGLE_API_KEY (Gemini) or OPENAI_API_KEY in Streamlit secrets."
+                    "Recommendations are disabled. Set **XAI_API_KEY** (Grok) in Streamlit secrets or config/.env."
                 )
             else:
                 with st.spinner("Analyzing your resume and JSOM programs..."):
