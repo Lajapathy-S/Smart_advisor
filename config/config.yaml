@@ -7,7 +7,7 @@ app:
 # LLM Configuration
 llm:
   provider: "xai"              # xAI Grok
-  model: "grok-2-latest"       # chat model
+  model: "grok-3-mini"       # chat model (cost-efficient); or grok-3, grok-4-0709
   temperature: 0.7
   max_tokens: 2000
   

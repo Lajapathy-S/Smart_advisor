@@ -115,7 +115,7 @@ def get_llm():
     api_key = os.getenv("XAI_API_KEY")
     if not api_key:
         return None
-    model = os.getenv("XAI_MODEL", "grok-2-latest")
+    model = os.getenv("XAI_MODEL", "grok-3-mini")
     try:
         return ChatXAI(
             model=model,
