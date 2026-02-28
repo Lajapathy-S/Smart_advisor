@@ -49,13 +49,6 @@ st.markdown(
         color: #4b5563;
         margin-bottom: 2rem;
     }
-    .card {
-        background-color: #ffffff;
-        padding: 0.5rem 2rem 2rem 2rem;
-        border-radius: 0.75rem;
-        box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
-        border: 1px solid #e5e7eb;
-    }
     .sr-only {
         position: absolute;
         width: 1px;
@@ -297,7 +290,6 @@ def main():
         )
 
     with st.container():
-        st.markdown('<div class="card">', unsafe_allow_html=True)
 
         pursuing = st.text_input(
             "What are you pursuing?",
@@ -353,8 +345,6 @@ def main():
 
                 st.subheader("Recommended JSOM Subjects for Your Goal")
                 st.markdown(answer)
-
-        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown(
