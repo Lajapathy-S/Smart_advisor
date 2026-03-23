@@ -233,8 +233,153 @@ def extract_skills_from_resume(text: str) -> list[str]:
     return final_skills
 
 
+def infer_target_role_skills(target_role: str) -> list[str]:
+    """
+    Return expected baseline skills for common target roles.
+    Uses keyword matching so we can estimate skill gaps without another model call.
+    """
+    role = target_role.lower()
+
+    role_skill_map = {
+        "data engineer": [
+            "python",
+            "sql",
+            "data engineering",
+            "spark",
+            "cloud",
+            "aws",
+            "docker",
+            "linux",
+            "git",
+        ],
+        "data analyst": [
+            "sql",
+            "excel",
+            "tableau",
+            "power bi",
+            "statistics",
+            "data analysis",
+            "communication",
+            "presentation",
+        ],
+        "business analyst": [
+            "sql",
+            "excel",
+            "data analysis",
+            "communication",
+            "presentation",
+            "project management",
+        ],
+        "product manager": [
+            "communication",
+            "leadership",
+            "data analysis",
+            "project management",
+            "presentation",
+            "teamwork",
+        ],
+        "software engineer": [
+            "python",
+            "java",
+            "c++",
+            "javascript",
+            "git",
+            "linux",
+            "docker",
+        ],
+        "machine learning engineer": [
+            "python",
+            "machine learning",
+            "deep learning",
+            "statistics",
+            "sql",
+            "cloud",
+            "gcp",
+        ],
+        "finance analyst": [
+            "finance",
+            "excel",
+            "sql",
+            "statistics",
+            "communication",
+            "presentation",
+        ],
+    }
+
+    for role_key, skills in role_skill_map.items():
+        if role_key in role:
+            return skills
+
+    # Generic fallback if role is not matched
+    return [
+        "sql",
+        "excel",
+        "communication",
+        "presentation",
+        "data analysis",
+    ]
+
+
+def compute_skill_gaps(resume_skills: list[str], target_role: str) -> tuple[list[str], list[str]]:
+    """
+    Compare extracted resume skills with target-role expected skills.
+    Returns (matched_skills, missing_skills).
+    """
+    expected = infer_target_role_skills(target_role)
+    resume_set = {s.lower().strip() for s in resume_skills}
+    matched = [s for s in expected if s in resume_set]
+    missing = [s for s in expected if s not in resume_set]
+    return matched, missing
+
+
+def extract_course_catalog(programs_context: str) -> str:
+    """
+    Extract course code + title pairs from scraped program text.
+    This helps ground the LLM output in authentic catalog entries.
+    """
+    # Capture course codes like BUAN 6398, MIS 6324, ACCT6301
+    code_pattern = re.compile(r"\b([A-Z]{2,5}\s?\d{4})\b")
+
+    entries: list[str] = []
+    seen = set()
+    current_program = "Unknown Program"
+
+    for line in programs_context.splitlines():
+        if line.startswith("PROGRAM:"):
+            current_program = line.replace("PROGRAM:", "", 1).strip() or "Unknown Program"
+            continue
+
+        for match in code_pattern.finditer(line):
+            code = match.group(1).replace("  ", " ").strip()
+            # Try to infer a nearby title from the text right after the code
+            remainder = line[match.end() :].strip(" -:|,")
+            title = ""
+            if remainder:
+                # Keep a short phrase for readability and avoid giant fragments
+                title = re.split(r"[.;|]|  ", remainder)[0].strip()
+                title = re.sub(r"\s+", " ", title)
+                if len(title) > 90:
+                    title = title[:90].rsplit(" ", 1)[0]
+
+            if not title:
+                continue
+
+            key = (code, title.lower(), current_program)
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append(f"- {code} {title} ({current_program})")
+
+    # Keep prompt concise while still giving enough grounded options
+    return "\n".join(entries[:250])
+
+
 def build_recommendation_prompt(
-    pursuing: str, skills: list[str], goal: str, programs_context: str
+    pursuing: str,
+    skills: list[str],
+    goal: str,
+    programs_context: str,
+    course_catalog: str,
 ) -> str:
     skills_str = ", ".join(skills) if skills else "not clearly specified"
     return f"""
@@ -251,8 +396,8 @@ help the student prepare for the target role.
 
 IMPORTANT – Course codes are required:
 - For EVERY recommended course you MUST include the official course code (e.g. ACCT 6301, OPRE 6366, MIS 6324, MKT 6301).
-- Extract the course code from the JSOM context below when available (look for patterns like "CODE 6XXX", "ACCT 6301", "OPRE 6366").
-- Format each course line as: **Course code** – Course name (e.g. **OPRE 6366** – Operations Management).
+- Prefer course code + title pairs found in the extracted catalog list below.
+- Format each course as: COURSE_CODE Course Title (example: BUAN 6398 Prescriptive Analytics).
 - If the context does not list a code for a course, use the closest match or state "[Code from catalog: check program page]".
 
 For each recommended course, clearly state:
@@ -263,13 +408,17 @@ For each recommended course, clearly state:
 
 Focus especially on courses that build the missing skills relative to the target role.
 
+EXTRACTED COURSE CATALOG (code + title from JSOM pages):
+{course_catalog}
+
 JSOM PROGRAMS AND COURSES CONTEXT:
 {programs_context}
 
 Now provide a concise, structured recommendation:
 1. List the most relevant JSOM programs for this role.
-2. Under each program, list 3–8 high-impact courses. Every course MUST show its course code first (e.g. **MIS 6324** – Database Management).
-3. Briefly explain why these courses help the student become a strong candidate for the role.
+2. Under each program, list 3–8 high-impact courses.
+3. Each course line MUST be in this exact style: BUAN 6398 Prescriptive Analytics
+4. Briefly explain why these courses help the student become a strong candidate for the role.
 """
 
 
@@ -323,10 +472,18 @@ def main():
                 with st.spinner("Analyzing your resume and JSOM programs..."):
                     resume_text = extract_resume_text(resume_file)
                     skills = extract_skills_from_resume(resume_text)
+                    matched_skills, missing_skills = compute_skill_gaps(
+                        skills, target_role.strip()
+                    )
                     programs_context = fetch_program_context()
+                    course_catalog = extract_course_catalog(programs_context)
 
                     prompt = build_recommendation_prompt(
-                        pursuing.strip(), skills, target_role.strip(), programs_context
+                        pursuing.strip(),
+                        skills,
+                        target_role.strip(),
+                        programs_context,
+                        course_catalog,
                     )
 
                     try:
@@ -342,6 +499,18 @@ def main():
                 if skills:
                     st.subheader("Skills detected from your resume")
                     st.write(", ".join(skills))
+                else:
+                    st.subheader("Skills detected from your resume")
+                    st.write("No clear skills were detected from the uploaded resume.")
+
+                st.subheader("Skill gaps for your target role")
+                if missing_skills:
+                    st.write(", ".join(missing_skills))
+                else:
+                    st.write("No major skill gaps detected for the mapped baseline of this role.")
+
+                if matched_skills:
+                    st.caption("Skills already aligned with your target role: " + ", ".join(matched_skills))
 
                 st.subheader("Recommended JSOM Subjects for Your Goal")
                 st.markdown(answer)
