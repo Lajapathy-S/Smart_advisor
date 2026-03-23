@@ -3,9 +3,12 @@ Streamlit Frontend Application
 JSOM Smart Advisor - Resume-based course recommendation.
 """
 
+import json
 import os
 import re
 from pathlib import Path
+from typing import Any
+
 import requests
 import streamlit as st
 from bs4 import BeautifulSoup
@@ -119,14 +122,25 @@ def get_llm():
         return None
 
 
+# Community roadmaps from roadmap.sh (see https://roadmap.sh/, source: developer-roadmap repo)
+ROADMAP_JSON_BASE = (
+    "https://raw.githubusercontent.com/kamranahmedse/developer-roadmap/master/"
+    "src/data/roadmaps/{slug}/{slug}.json"
+)
+
+
 @st.cache_resource(show_spinner=False)
-def fetch_program_context() -> str:
-    """Fetch and lightly clean text from all JSOM program URLs."""
+def fetch_program_context(program_subset: dict[str, str] | None = None) -> str:
+    """
+    Fetch and lightly clean text from JSOM program URLs.
+    If program_subset is provided, only those (name -> url) are fetched.
+    """
+    mapping = program_subset if program_subset is not None else PROGRAM_URLS
     parts = []
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; JSOM-Smart-Advisor/1.0)"
     }
-    for name, url in PROGRAM_URLS.items():
+    for name, url in mapping.items():
         try:
             resp = requests.get(url, timeout=20, headers=headers)
             resp.raise_for_status()
@@ -233,6 +247,126 @@ def extract_skills_from_resume(text: str) -> list[str]:
     return final_skills
 
 
+def _infer_program_level(pursuing: str) -> str:
+    text = pursuing.lower()
+    if any(k in text for k in ["master", "masters", "ms ", "m.s", "mba", "graduate"]):
+        return "graduate"
+    if any(k in text for k in ["bachelor", "bachelors", "bs ", "b.s", "undergraduate"]):
+        return "undergraduate"
+    return "unknown"
+
+
+def match_pursuing_to_programs(pursuing: str) -> tuple[dict[str, str], str | None]:
+    """
+    Map free-text pursuit to the closest single JSOM program in PROGRAM_URLS.
+    Returns {program_name: url} with one entry when confident, plus optional warning.
+    """
+    raw = (pursuing or "").strip()
+    if not raw:
+        return dict(PROGRAM_URLS), "Add a clearer program name to scope results to one degree."
+
+    level = _infer_program_level(raw)
+    p = raw.lower()
+
+    candidates: list[tuple[str, str]] = []
+    for name, url in PROGRAM_URLS.items():
+        if level == "graduate":
+            if not (name.startswith("MS ") or name == "MBA"):
+                continue
+        elif level == "undergraduate":
+            if not name.startswith("BS "):
+                continue
+        candidates.append((name, url))
+
+    if not candidates:
+        candidates = list(PROGRAM_URLS.items())
+
+    # MBA-only shortcut
+    if level == "graduate" and re.search(r"\bmba\b", p):
+        other_signals = bool(
+            re.search(
+                r"\b(analytics|finance|marketing|accounting|supply|itm|technology|fintech|healthcare|energy)\b",
+                p,
+            )
+        )
+        if not other_signals:
+            return {"MBA": PROGRAM_URLS["MBA"]}, None
+
+    stop = frozenset(
+        {
+            "in",
+            "of",
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "to",
+            "for",
+            "program",
+            "programs",
+            "degree",
+            "degrees",
+            "master",
+            "masters",
+            "msc",
+            "ms",
+            "mba",
+            "bs",
+            "bsc",
+            "bachelor",
+            "bachelors",
+            "undergraduate",
+            "graduate",
+            "at",
+            "ut",
+            "dallas",
+            "jsom",
+            "utd",
+            "university",
+        }
+    )
+    pursuit_tokens = {t for t in re.findall(r"[a-z0-9]+", p) if t not in stop and len(t) > 1}
+
+    best_score = -1
+    best: list[tuple[str, str]] = []
+
+    for name, url in candidates:
+        core = re.sub(r"^(MS|BS)\s+", "", name, flags=re.I).strip()
+        if name == "MBA":
+            core = "mba"
+        name_tokens = {
+            t
+            for t in re.findall(r"[a-z0-9]+", core.lower())
+            if t not in stop and len(t) > 1
+        }
+        score = len(name_tokens & pursuit_tokens)
+        if score > best_score:
+            best_score = score
+            best = [(name, url)]
+        elif score == best_score and score >= 0:
+            best.append((name, url))
+
+    if best_score <= 0:
+        warn = (
+            "Could not match your text to a specific JSOM program. "
+            "Try wording closer to the catalog (e.g. 'MS Business Analytics'). "
+            "Using all programs at your level for now."
+        )
+        return dict(candidates), warn
+
+    if len(best) > 1:
+        compact = re.sub(r"[^a-z0-9]", "", p)
+        exact = [pair for pair in best if re.sub(r"[^a-z0-9]", "", pair[0].lower()) in compact]
+        if len(exact) == 1:
+            best = exact
+        else:
+            best = sorted(best, key=lambda x: (-len(x[0]), x[0]))[:1]
+
+    name, url = best[0]
+    return {name: url}, None
+
+
 def infer_target_role_skills(target_role: str) -> list[str]:
     """
     Return expected baseline skills for common target roles.
@@ -320,17 +454,144 @@ def infer_target_role_skills(target_role: str) -> list[str]:
     ]
 
 
-def compute_skill_gaps(resume_skills: list[str], target_role: str) -> tuple[list[str], list[str]]:
-    """
-    Compare extracted resume skills with target-role expected skills.
-    Returns (matched_skills, missing_skills).
-    """
-    expected = infer_target_role_skills(target_role)
-    resume_set = {s.lower().strip() for s in resume_skills}
-    matched = [s for s in expected if s in resume_set]
-    missing = [s for s in expected if s not in resume_set]
-    return matched, missing
+def roadmap_slug_for_target_role(target_role: str) -> str | None:
+    """Map user target role to a roadmap.sh / developer-roadmap slug."""
+    role = target_role.lower().strip()
+    pairs: list[tuple[str, str]] = [
+        ("data engineer", "data-engineer"),
+        ("data engineering", "data-engineer"),
+        ("data analyst", "data-analyst"),
+        ("business intelligence", "bi-analyst"),
+        ("bi analyst", "bi-analyst"),
+        ("business analyst", "data-analyst"),
+        ("machine learning", "machine-learning"),
+        ("ml engineer", "machine-learning"),
+        ("ai engineer", "ai-engineer"),
+        ("software engineer", "backend"),
+        ("backend developer", "backend"),
+        ("full stack", "full-stack"),
+        ("frontend", "frontend"),
+        ("devops", "devops"),
+        ("cyber security", "cyber-security"),
+        ("product manager", "product-manager"),
+        ("engineering manager", "engineering-manager"),
+        ("cloud", "aws"),
+        ("aws", "aws"),
+    ]
+    for needle, slug in pairs:
+        if needle in role:
+            return slug
+    return None
 
+
+def _collect_roadmap_labels(obj: Any, out: set[str]) -> None:
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in ("label", "name", "title") and isinstance(v, str):
+                t = v.strip()
+                if t:
+                    out.add(t)
+            else:
+                _collect_roadmap_labels(v, out)
+    elif isinstance(obj, list):
+        for item in obj:
+            _collect_roadmap_labels(item, out)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_roadmap_labels(roadmap_slug: str) -> list[str]:
+    """Load topic labels from the public developer-roadmap JSON behind roadmap.sh."""
+    url = ROADMAP_JSON_BASE.format(slug=roadmap_slug)
+    try:
+        resp = requests.get(
+            url,
+            timeout=25,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; JSOM-Smart-Advisor/1.0)"},
+        )
+        resp.raise_for_status()
+        data = json.loads(resp.text)
+    except Exception:
+        return []
+
+    found: set[str] = set()
+    _collect_roadmap_labels(data, found)
+
+    noise = frozenset(
+        {
+            "optional",
+            "pick a language",
+            "learn the basics",
+            "learn basics",
+            "version control systems",
+            "what is",
+            "roadmap",
+        }
+    )
+    cleaned: list[str] = []
+    for s in found:
+        sl = s.lower().strip()
+        if sl in noise or len(sl) < 3 or len(s) > 85:
+            continue
+        cleaned.append(s)
+
+    # De-dupe case-insensitively while keeping readable capitalization
+    seen: set[str] = set()
+    out: list[str] = []
+    for s in sorted(cleaned, key=len):
+        key = s.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+    return out[:220]
+
+
+def compute_skill_gaps(
+    resume_text: str,
+    resume_skills: list[str],
+    target_role: str,
+) -> tuple[list[str], list[str], str | None, str]:
+    """
+    Compare resume against roadmap.sh topic labels when possible.
+    Returns (matched_topics, missing_topics, roadmap_slug | None, source_note).
+    """
+    slug = roadmap_slug_for_target_role(target_role)
+    if slug:
+        topics = fetch_roadmap_labels(slug)
+    else:
+        topics = []
+
+    if not topics:
+        expected = infer_target_role_skills(target_role)
+        resume_set = {s.lower().strip() for s in resume_skills}
+        matched = [s for s in expected if s in resume_set]
+        missing = [s for s in expected if s not in resume_set]
+        return matched, missing, None, "Built-in role baseline (add a more specific target role for roadmap.sh topics)."
+
+    blob = f"{(resume_text or '')} {' '.join(resume_skills)}".lower()
+    matched_topics: list[str] = []
+    missing_topics: list[str] = []
+
+    for lab in topics:
+        ln = lab.lower()
+        words = [w for w in re.findall(r"[a-z0-9]+", ln) if len(w) > 2]
+        if not words:
+            continue
+        if ln in blob:
+            matched_topics.append(lab)
+            continue
+        hits = sum(1 for w in words if w in blob)
+        need = max(1, min(2, (len(words) + 1) // 2))
+        if hits >= need:
+            matched_topics.append(lab)
+        else:
+            missing_topics.append(lab)
+
+    # Keep UI readable
+    missing_topics = missing_topics[:40]
+    matched_topics = matched_topics[:35]
+    note = f"Topics derived from roadmap.sh community roadmaps (GitHub: developer-roadmap / `{slug}.json`)."
+    return matched_topics, missing_topics, slug, note
 
 def extract_course_catalog(programs_context: str) -> str:
     """
@@ -374,53 +635,6 @@ def extract_course_catalog(programs_context: str) -> str:
     return "\n".join(entries[:250])
 
 
-def _infer_program_level(pursuing: str) -> str:
-    text = pursuing.lower()
-    if any(k in text for k in ["master", "masters", "ms ", "m.s", "mba", "graduate"]):
-        return "graduate"
-    if any(k in text for k in ["bachelor", "bachelors", "bs ", "b.s", "undergraduate"]):
-        return "undergraduate"
-    return "unknown"
-
-
-def filter_program_context_by_pursuit(programs_context: str, pursuing: str) -> str:
-    """
-    Filter scraped program blocks based on user's pursuit.
-    Example: Masters/MS -> keep MS/MBA programs, exclude BS programs.
-    """
-    if not programs_context.strip():
-        return programs_context
-
-    level = _infer_program_level(pursuing)
-    blocks = programs_context.split("\n\nPROGRAM: ")
-    normalized_blocks = []
-    for idx, block in enumerate(blocks):
-        # First block may already start with PROGRAM:
-        if idx == 0 and block.startswith("PROGRAM: "):
-            normalized_blocks.append(block)
-        elif idx == 0:
-            # Skip unexpected preamble content
-            continue
-        else:
-            normalized_blocks.append("PROGRAM: " + block)
-
-    if level == "unknown":
-        return programs_context
-
-    filtered = []
-    for block in normalized_blocks:
-        first_line = block.splitlines()[0].lower()
-        if level == "graduate":
-            if first_line.startswith("program: ms ") or first_line.startswith("program: mba"):
-                filtered.append(block)
-        elif level == "undergraduate":
-            if first_line.startswith("program: bs "):
-                filtered.append(block)
-
-    # Fallback to original context if filter becomes too restrictive
-    return "\n\n".join(filtered) if filtered else programs_context
-
-
 def build_recommendation_prompt(
     pursuing: str,
     skills: list[str],
@@ -437,19 +651,19 @@ Student goal:
 - Target role: {goal}
 - Current skills: {skills_str}
 
-Below is information about JSOM graduate and undergraduate programs and their course requirements.
-Use ONLY this information to recommend specific subjects (courses) from these programs that will
-help the student prepare for the target role.
+Below is information from the JSOM program page(s) the student selected (see PROGRAM lines).
+Use ONLY this information to recommend specific subjects (courses) that will help the student
+prepare for the target role.
+
+IMPORTANT – Scope:
+- Recommend courses ONLY from the program(s) listed in the context below.
+- Do NOT recommend courses from other JSOM degrees or programs that are not in this context.
 
 IMPORTANT – Course codes are required:
 - For EVERY recommended course you MUST include the official course code (e.g. ACCT 6301, OPRE 6366, MIS 6324, MKT 6301).
 - Prefer course code + title pairs found in the extracted catalog list below.
 - Format each course as: COURSE_CODE Course Title (example: BUAN 6398 Prescriptive Analytics).
 - If the context does not list a code for a course, use the closest match or state "[Code from catalog: check program page]".
-- Recommend courses only from programs aligned to the user's pursuit level.
-  - If pursuing indicates Masters/MS/MBA, DO NOT include BS courses.
-  - If pursuing indicates BS/Bachelor, DO NOT include MS/MBA courses.
-
 For each recommended course, clearly state:
 1. Course code (required, e.g. ACCT 6301, OPRE 6366)
 2. Course name
@@ -465,8 +679,8 @@ JSOM PROGRAMS AND COURSES CONTEXT:
 {programs_context}
 
 Now provide a concise, structured recommendation:
-1. List the most relevant JSOM programs for this role.
-2. Under each program, list 3–8 high-impact courses.
+1. Confirm which JSOM program(s) from the context you are using (must match PROGRAM lines only).
+2. List 3–10 high-impact courses from that program only.
 3. Each course line MUST be in this exact style: BUAN 6398 Prescriptive Analytics
 4. Briefly explain why these courses help the student become a strong candidate for the role.
 """
@@ -522,20 +736,18 @@ def main():
                 with st.spinner("Analyzing your resume and JSOM programs..."):
                     resume_text = extract_resume_text(resume_file)
                     skills = extract_skills_from_resume(resume_text)
-                    matched_skills, missing_skills = compute_skill_gaps(
-                        skills, target_role.strip()
+                    matched_skills, missing_skills, roadmap_slug, gap_source_note = (
+                        compute_skill_gaps(resume_text, skills, target_role.strip())
                     )
-                    programs_context = fetch_program_context()
-                    filtered_context = filter_program_context_by_pursuit(
-                        programs_context, pursuing.strip()
-                    )
-                    course_catalog = extract_course_catalog(filtered_context)
+                    program_map, pursuit_warning = match_pursuing_to_programs(pursuing.strip())
+                    programs_context = fetch_program_context(program_map)
+                    course_catalog = extract_course_catalog(programs_context)
 
                     prompt = build_recommendation_prompt(
                         pursuing.strip(),
                         skills,
                         target_role.strip(),
-                        filtered_context,
+                        programs_context,
                         course_catalog,
                     )
 
@@ -549,6 +761,9 @@ def main():
                         )
                         st.error(str(e))
 
+                if pursuit_warning:
+                    st.info(pursuit_warning)
+
                 if skills:
                     st.subheader("Skills detected from your resume")
                     st.write(", ".join(skills))
@@ -557,13 +772,19 @@ def main():
                     st.write("No clear skills were detected from the uploaded resume.")
 
                 st.subheader("Skill gaps for your target role")
+                st.caption(gap_source_note)
+                if roadmap_slug:
+                    st.markdown(
+                        f"Explore the full roadmap interactively: **[roadmap.sh](https://roadmap.sh/)** "
+                        f"— topic list loaded from community roadmap data (`{roadmap_slug}`)."
+                    )
                 if missing_skills:
                     st.write(", ".join(missing_skills))
                 else:
-                    st.write("No major skill gaps detected for the mapped baseline of this role.")
+                    st.write("No major gaps detected against the selected topic list for this role.")
 
                 if matched_skills:
-                    st.caption("Skills already aligned with your target role: " + ", ".join(matched_skills))
+                    st.caption("Topics/skills already reflected in your resume: " + ", ".join(matched_skills))
 
                 st.subheader("Recommended JSOM Subjects for Your Goal")
                 st.markdown(answer)
