@@ -374,6 +374,53 @@ def extract_course_catalog(programs_context: str) -> str:
     return "\n".join(entries[:250])
 
 
+def _infer_program_level(pursuing: str) -> str:
+    text = pursuing.lower()
+    if any(k in text for k in ["master", "masters", "ms ", "m.s", "mba", "graduate"]):
+        return "graduate"
+    if any(k in text for k in ["bachelor", "bachelors", "bs ", "b.s", "undergraduate"]):
+        return "undergraduate"
+    return "unknown"
+
+
+def filter_program_context_by_pursuit(programs_context: str, pursuing: str) -> str:
+    """
+    Filter scraped program blocks based on user's pursuit.
+    Example: Masters/MS -> keep MS/MBA programs, exclude BS programs.
+    """
+    if not programs_context.strip():
+        return programs_context
+
+    level = _infer_program_level(pursuing)
+    blocks = programs_context.split("\n\nPROGRAM: ")
+    normalized_blocks = []
+    for idx, block in enumerate(blocks):
+        # First block may already start with PROGRAM:
+        if idx == 0 and block.startswith("PROGRAM: "):
+            normalized_blocks.append(block)
+        elif idx == 0:
+            # Skip unexpected preamble content
+            continue
+        else:
+            normalized_blocks.append("PROGRAM: " + block)
+
+    if level == "unknown":
+        return programs_context
+
+    filtered = []
+    for block in normalized_blocks:
+        first_line = block.splitlines()[0].lower()
+        if level == "graduate":
+            if first_line.startswith("program: ms ") or first_line.startswith("program: mba"):
+                filtered.append(block)
+        elif level == "undergraduate":
+            if first_line.startswith("program: bs "):
+                filtered.append(block)
+
+    # Fallback to original context if filter becomes too restrictive
+    return "\n\n".join(filtered) if filtered else programs_context
+
+
 def build_recommendation_prompt(
     pursuing: str,
     skills: list[str],
@@ -399,6 +446,9 @@ IMPORTANT – Course codes are required:
 - Prefer course code + title pairs found in the extracted catalog list below.
 - Format each course as: COURSE_CODE Course Title (example: BUAN 6398 Prescriptive Analytics).
 - If the context does not list a code for a course, use the closest match or state "[Code from catalog: check program page]".
+- Recommend courses only from programs aligned to the user's pursuit level.
+  - If pursuing indicates Masters/MS/MBA, DO NOT include BS courses.
+  - If pursuing indicates BS/Bachelor, DO NOT include MS/MBA courses.
 
 For each recommended course, clearly state:
 1. Course code (required, e.g. ACCT 6301, OPRE 6366)
@@ -476,13 +526,16 @@ def main():
                         skills, target_role.strip()
                     )
                     programs_context = fetch_program_context()
-                    course_catalog = extract_course_catalog(programs_context)
+                    filtered_context = filter_program_context_by_pursuit(
+                        programs_context, pursuing.strip()
+                    )
+                    course_catalog = extract_course_catalog(filtered_context)
 
                     prompt = build_recommendation_prompt(
                         pursuing.strip(),
                         skills,
                         target_role.strip(),
-                        programs_context,
+                        filtered_context,
                         course_catalog,
                     )
 
