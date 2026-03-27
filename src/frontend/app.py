@@ -102,6 +102,88 @@ PROGRAM_URLS = {
     "MBA": "https://catalog.utdallas.edu/2025/graduate/programs/jsom/business-administration",
 }
 
+PURSUIT_OPTIONS = [
+    "MS Accounting",
+    "MS Business Analytics",
+    "MS ITM",
+    "Master of Science in Energy Management",
+    "Master of Science in Finance",
+    "Master of Science in Financial Technology and Analytics",
+    "Master of Science in Healthcare Leadership and Management",
+    "Master of Science in International Management Studies",
+    "Master of Science in Management Science",
+    "Master of Science in Marketing",
+    "Master of Science in Supply Chain Management",
+    "MS in Systems Engineering and Management",
+    "Bachelor of Science in Accounting",
+    "Bachelor of Science in Business Administration",
+    "Bachelor of Science in Business Analytics and Artificial Intelligence",
+    "Bachelor of Science in Computer Information Systems and Technology",
+    "Bachelor of Science in Cybersecurity and Risk Management",
+    "Bachelor of Science in Finance",
+    "Bachelor of Science in Healthcare Management",
+    "Bachelor of Science in Human Resource Management",
+    "Bachelor of Science in Marketing",
+    "Bachelor of Science in Supply Chain Management and Analytics",
+    "Master of Business Administration",
+]
+
+# Display text -> program key in PROGRAM_URLS
+PURSUIT_TO_PROGRAM = {
+    "MS Accounting": "MS Accounting",
+    "MS Business Analytics": "MS Business Analytics",
+    "MS ITM": "MS Information Technology Management",
+    "Master of Science in Energy Management": "MS Energy Management",
+    "Master of Science in Finance": "MS Finance",
+    "Master of Science in Financial Technology and Analytics": "MS Financial Technology and Analytics",
+    "Master of Science in Healthcare Leadership and Management": "MS Healthcare Leadership and Management",
+    "Master of Science in International Management Studies": "MS International Management Studies",
+    "Master of Science in Management Science": "MS Management Science",
+    "Master of Science in Marketing": "MS Marketing",
+    "Master of Science in Supply Chain Management": "MS Supply Chain Management",
+    "MS in Systems Engineering and Management": "MS Systems Engineering and Management",
+    "Bachelor of Science in Accounting": "BS Accounting",
+    "Bachelor of Science in Business Administration": "BS Business Administration",
+    "Bachelor of Science in Business Analytics and Artificial Intelligence": "BS Business Analytics and AI",
+    "Bachelor of Science in Computer Information Systems and Technology": "BS Computer Information Systems and Technology",
+    "Bachelor of Science in Cybersecurity and Risk Management": "BS Cybersecurity and Risk Management",
+    "Bachelor of Science in Finance": "BS Finance",
+    "Bachelor of Science in Healthcare Management": "BS Healthcare Management",
+    "Bachelor of Science in Human Resource Management": "BS Human Resource Management",
+    "Bachelor of Science in Marketing": "BS Marketing",
+    "Bachelor of Science in Supply Chain Management and Analytics": "BS Supply Chain Management and Analytics",
+    "Master of Business Administration": "MBA",
+}
+
+CAREER_PATH_OPTIONS = [
+    "frontend",
+    "Devops",
+    "AI engineer",
+    "Android",
+    "IOS",
+    "Software architect",
+    "Technical writer",
+    "MLops",
+    "Developer relations",
+    "Backend",
+    "Devsecops",
+    "AI and data scientist",
+    "Machine learning",
+    "Blockcchain",
+    "Cybersecurity",
+    "Game Developer",
+    "Product Manager",
+    "BI Analyst",
+    "Full stack",
+    "Data Analyst",
+    "Data Engineer",
+    "PostgreSQL",
+    "QA",
+    "UX Design",
+    "server side game developer",
+    "Engineering Manager",
+]
+
 
 @st.cache_resource(show_spinner=False)
 def get_llm():
@@ -264,6 +346,11 @@ def match_pursuing_to_programs(pursuing: str) -> tuple[dict[str, str], str | Non
     raw = (pursuing or "").strip()
     if not raw:
         return dict(PROGRAM_URLS), "Add a clearer program name to scope results to one degree."
+
+    # Direct mapping from dropdown option to a single JSOM program
+    if raw in PURSUIT_TO_PROGRAM:
+        program_name = PURSUIT_TO_PROGRAM[raw]
+        return {program_name: PROGRAM_URLS[program_name]}, None
 
     level = _infer_program_level(raw)
     p = raw.lower()
@@ -704,10 +791,11 @@ def main():
 
     with st.container():
 
-        pursuing = st.text_input(
+        pursuing = st.selectbox(
             "What are you pursuing?",
-            placeholder="e.g., Masters in Business Analytics, MS in Data Science, MBA, BS in Finance",
-            help="Degree or program you’re interested in (e.g., Masters in Business Analytics).",
+            options=["Select your program"] + PURSUIT_OPTIONS,
+            index=0,
+            help="Choose your exact JSOM degree/program.",
         )
 
         resume_file = st.file_uploader(
@@ -716,18 +804,20 @@ def main():
             help="Upload a recent version of your resume (PDF or TXT).",
         )
 
-        target_role = st.text_input(
-            "What role are you aiming for?",
-            placeholder="e.g., Data Engineer, Business Analyst, Product Manager",
+        target_role = st.selectbox(
+            "What career path are you aiming for?",
+            options=["Select a career path"] + CAREER_PATH_OPTIONS,
+            index=0,
+            help="Career paths aligned to roadmap.sh role-based roadmaps.",
         )
 
         if st.button("Get JSOM Subject Recommendations"):
-            if not pursuing.strip():
-                st.warning("Please specify what you’re pursuing (e.g., Masters in Business Analytics).")
+            if pursuing == "Select your program":
+                st.warning("Please choose what you’re pursuing from the dropdown.")
             elif not resume_file:
                 st.warning("Please upload your resume.")
-            elif not target_role.strip():
-                st.warning("Please enter your target role (for example, 'Data Engineer').")
+            elif target_role == "Select a career path":
+                st.warning("Please choose your target career path from the dropdown.")
             elif not llm:
                 st.error(
                     "Recommendations are disabled. Set **XAI_API_KEY** (Grok) in Streamlit secrets or config/.env."
