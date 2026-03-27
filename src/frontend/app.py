@@ -832,18 +832,6 @@ def parse_llm_recommendation(raw: str) -> tuple[str, bool]:
     return text, False
 
 
-def test_xai_connection(llm) -> tuple[bool, str]:
-    """Lightweight check that Grok (xAI) API accepts a request."""
-    try:
-        response = llm.invoke("Reply with exactly: OK")
-        text = (response.content if hasattr(response, "content") else str(response)).strip()
-        if text.upper().startswith("OK") or "\nOK" in text.upper():
-            return True, "API reachable — received OK from model."
-        return True, f"API reachable — model replied: {text[:180]!r}"
-    except Exception as e:
-        return False, str(e)
-
-
 def main():
     llm = get_llm()
 
@@ -859,16 +847,6 @@ def main():
             "To enable recommendations, add **XAI_API_KEY** (Grok) in Streamlit Cloud "
             "**Settings → Secrets**, or in `config/.env` locally."
         )
-    else:
-        with st.expander("Check Grok (xAI) API connection", expanded=False):
-            st.caption("Sends one tiny test prompt to your configured Grok model (uses your API key).")
-            if st.button("Run API test", key="xai_api_test"):
-                ok, msg = test_xai_connection(llm)
-                if ok:
-                    st.success(msg)
-                else:
-                    st.error(msg)
-
     with st.container():
 
         pursuing = st.selectbox(
