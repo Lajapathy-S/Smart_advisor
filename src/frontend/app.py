@@ -552,16 +552,32 @@ def roadmap_slug_for_target_role(target_role: str) -> str | None:
         ("bi analyst", "bi-analyst"),
         ("business analyst", "data-analyst"),
         ("machine learning", "machine-learning"),
+        ("mlops", "mlops"),
+        ("ai and data scientist", "ai-data-scientist"),
         ("ml engineer", "machine-learning"),
         ("ai engineer", "ai-engineer"),
         ("software engineer", "backend"),
+        ("software architect", "software-architect"),
         ("backend developer", "backend"),
+        ("backend", "backend"),
         ("full stack", "full-stack"),
         ("frontend", "frontend"),
         ("devops", "devops"),
+        ("devsecops", "devsecops"),
+        ("developer relations", "devrel"),
+        ("technical writer", "technical-writer"),
+        ("android", "android"),
+        ("ios", "ios"),
+        ("game developer", "game-developer"),
+        ("server side game developer", "server-side-game-developer"),
+        ("blockcchain", "blockchain"),
         ("cyber security", "cyber-security"),
+        ("cybersecurity", "cyber-security"),
         ("product manager", "product-manager"),
         ("engineering manager", "engineering-manager"),
+        ("postgresql", "postgresql"),
+        ("qa", "qa"),
+        ("ux design", "ux-design"),
         ("cloud", "aws"),
         ("aws", "aws"),
     ]
@@ -722,6 +738,13 @@ def extract_course_catalog(programs_context: str) -> str:
     return "\n".join(entries[:250])
 
 
+DEFAULT_NO_COURSE_MESSAGE = (
+    "Thanks for your selections. We couldn’t reliably extract course listings from the JSOM "
+    "catalog page for this program, or none appeared in the scraped text. Please open the "
+    "official program page linked in your degree plan to confirm required and elective courses."
+)
+
+
 def build_recommendation_prompt(
     pursuing: str,
     skills: list[str],
@@ -730,34 +753,51 @@ def build_recommendation_prompt(
     course_catalog: str,
 ) -> str:
     skills_str = ", ".join(skills) if skills else "not clearly specified"
+    catalog_note = (
+        "(The extracted catalog below is empty or incomplete — be extra conservative.)"
+        if not (course_catalog or "").strip()
+        else ""
+    )
     return f"""
 You are the JSOM Smart Advisor at UT Dallas.
 
 Student goal:
 - What they are pursuing: {pursuing}
-- Target role: {goal}
+- Target career path: {goal}
 - Current skills: {skills_str}
 
 Below is information from the JSOM program page(s) the student selected (see PROGRAM lines).
 Use ONLY this information to recommend specific subjects (courses) that will help the student
-prepare for the target role.
+prepare for the target career path.
 
-IMPORTANT – Scope:
+CRITICAL – Honest fit check:
+- If this degree’s courses do NOT plausibly prepare someone for the chosen career path
+  (for example, MS Accounting combined with a pure Frontend engineering path),
+  you MUST NOT invent or stretch recommendations.
+- If the extracted catalog is empty or the page text has no usable course list for recommendations,
+  treat that as “no suitable recommendations”.
+- In ANY “no suitable recommendations” case, your ENTIRE output format is:
+  First line exactly: STATUS: NO_MATCH
+  Second line onwards: 2–4 short paragraphs in a polite, reassuring tone explaining that
+  this program’s curriculum doesn’t map well to that career path (or catalog data was insufficient),
+  and suggest they talk to a JSOM advisor or pick a program closer to that career (e.g. MS ITM,
+  Business Analytics, etc. when relevant). Do NOT list course codes in NO_MATCH mode.
+
+If and ONLY if there IS a reasonable, honest mapping between THIS program’s courses and the career path:
+- First line exactly: STATUS: OK
+
+IMPORTANT – Scope (when STATUS: OK):
 - Recommend courses ONLY from the program(s) listed in the context below.
 - Do NOT recommend courses from other JSOM degrees or programs that are not in this context.
 
-IMPORTANT – Course codes are required:
-- For EVERY recommended course you MUST include the official course code (e.g. ACCT 6301, OPRE 6366, MIS 6324, MKT 6301).
-- Prefer course code + title pairs found in the extracted catalog list below.
-- Format each course as: COURSE_CODE Course Title (example: BUAN 6398 Prescriptive Analytics).
-- If the context does not list a code for a course, use the closest match or state "[Code from catalog: check program page]".
-For each recommended course, clearly state:
-1. Course code (required, e.g. ACCT 6301, OPRE 6366)
-2. Course name
-3. Which JSOM program it belongs to
-4. Why it is relevant for the target role
+IMPORTANT – Course codes (when STATUS: OK):
+- For EVERY recommended course you MUST include the official course code from the context/catalog.
+- Format each course line as: COURSE_CODE Course Title (example: BUAN 6398 Prescriptive Analytics).
+- If the context does not list a code, do NOT invent one — treat as NO_MATCH if it would require guessing.
 
-Focus especially on courses that build the missing skills relative to the target role.
+When STATUS: OK, for each recommended course state: code, title, program name, relevance.
+
+{catalog_note}
 
 EXTRACTED COURSE CATALOG (code + title from JSOM pages):
 {course_catalog}
@@ -765,12 +805,43 @@ EXTRACTED COURSE CATALOG (code + title from JSOM pages):
 JSOM PROGRAMS AND COURSES CONTEXT:
 {programs_context}
 
-Now provide a concise, structured recommendation:
-1. Confirm which JSOM program(s) from the context you are using (must match PROGRAM lines only).
-2. List 3–10 high-impact courses from that program only.
-3. Each course line MUST be in this exact style: BUAN 6398 Prescriptive Analytics
-4. Briefly explain why these courses help the student become a strong candidate for the role.
+Output rules:
+- Start with exactly STATUS: NO_MATCH or STATUS: OK on the first line (no other text on that line).
+- If STATUS: OK, follow with a concise recommendation (3–10 courses when genuinely justified).
 """
+
+
+def parse_llm_recommendation(raw: str) -> tuple[str, bool]:
+    """
+    Parse Grok output that starts with STATUS: OK or STATUS: NO_MATCH.
+    Returns (display_text, is_no_match).
+    """
+    text = (raw or "").strip()
+    if not text:
+        return DEFAULT_NO_COURSE_MESSAGE, True
+
+    first_line, _, rest = text.partition("\n")
+    first = first_line.strip()
+    if first == "STATUS: NO_MATCH":
+        body = rest.strip()
+        return (body if body else DEFAULT_NO_COURSE_MESSAGE), True
+    if first == "STATUS: OK":
+        return (rest.strip() if rest.strip() else text), False
+
+    # Model omitted status line — show full response
+    return text, False
+
+
+def test_xai_connection(llm) -> tuple[bool, str]:
+    """Lightweight check that Grok (xAI) API accepts a request."""
+    try:
+        response = llm.invoke("Reply with exactly: OK")
+        text = (response.content if hasattr(response, "content") else str(response)).strip()
+        if text.upper().startswith("OK") or "\nOK" in text.upper():
+            return True, "API reachable — received OK from model."
+        return True, f"API reachable — model replied: {text[:180]!r}"
+    except Exception as e:
+        return False, str(e)
 
 
 def main():
@@ -788,6 +859,15 @@ def main():
             "To enable recommendations, add **XAI_API_KEY** (Grok) in Streamlit Cloud "
             "**Settings → Secrets**, or in `config/.env` locally."
         )
+    else:
+        with st.expander("Check Grok (xAI) API connection", expanded=False):
+            st.caption("Sends one tiny test prompt to your configured Grok model (uses your API key).")
+            if st.button("Run API test", key="xai_api_test"):
+                ok, msg = test_xai_connection(llm)
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
 
     with st.container():
 
@@ -833,23 +913,33 @@ def main():
                     programs_context = fetch_program_context(program_map)
                     course_catalog = extract_course_catalog(programs_context)
 
-                    prompt = build_recommendation_prompt(
-                        pursuing.strip(),
-                        skills,
-                        target_role.strip(),
-                        programs_context,
-                        course_catalog,
-                    )
-
-                    try:
-                        response = llm.invoke(prompt)
-                        answer = response.content if hasattr(response, "content") else str(response)
-                    except Exception as e:
-                        answer = (
-                            "I encountered an error while generating recommendations. "
-                            "Please try again or check your API configuration."
+                    if not programs_context.strip():
+                        answer = DEFAULT_NO_COURSE_MESSAGE
+                        no_match = True
+                    else:
+                        prompt = build_recommendation_prompt(
+                            pursuing.strip(),
+                            skills,
+                            target_role.strip(),
+                            programs_context,
+                            course_catalog,
                         )
-                        st.error(str(e))
+
+                        try:
+                            response = llm.invoke(prompt)
+                            raw_answer = (
+                                response.content
+                                if hasattr(response, "content")
+                                else str(response)
+                            )
+                            answer, no_match = parse_llm_recommendation(raw_answer)
+                        except Exception as e:
+                            answer = (
+                                "I encountered an error while generating recommendations. "
+                                "Please try again or check your API configuration."
+                            )
+                            no_match = True
+                            st.error(str(e))
 
                 if pursuit_warning:
                     st.info(pursuit_warning)
@@ -877,6 +967,11 @@ def main():
                     st.caption("Topics/skills already reflected in your resume: " + ", ".join(matched_skills))
 
                 st.subheader("Recommended JSOM Subjects for Your Goal")
+                if no_match:
+                    st.info(
+                        "No course list is suggested for this program + career path combination "
+                        "(or catalog data wasn’t enough). Read the note below."
+                    )
                 st.markdown(answer)
 
     st.markdown("---")
