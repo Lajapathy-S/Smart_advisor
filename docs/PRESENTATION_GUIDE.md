@@ -187,7 +187,7 @@ All features work **without requiring an API key** (except AI Chat). Degree Plan
 - Degree Plan: < 1 second
 - Career Info: < 1 second
 - Skills Analysis: < 1 second
-- Chat (with API): 2-5 seconds (depends on OpenAI)
+- JSOM Smart Advisor (Grok API): ~3–15 seconds (depends on xAI latency and scrape time)
 
 **Accuracy:**
 - Degree planning: 100% (based on official catalog)
@@ -206,31 +206,21 @@ All features work **without requiring an API key** (except AI Chat). Degree Plan
 ### Demo Flow (5 minutes)
 
 1. **Show the App** (30 sec)
-   - Open Streamlit URL
-   - Show the interface
-   - Explain tabs
+   - Open Streamlit URL (**JSOM Smart Advisor**)
+   - Single page: program dropdown, career path dropdown, resume upload
 
-2. **Degree Planning** (1 min)
-   - Select degree and year
-   - Show semester plan
-   - Explain prerequisite logic
+2. **Pick program + career** (45 sec)
+   - Example: MS Business Analytics + Data Analyst
+   - Explain that only that program’s official page is scraped
 
-3. **Career Guidance** (1 min)
-   - Search for a job role
-   - Show skills breakdown
-   - Display career trajectory
+3. **Upload resume** (30 sec)
+   - Show extracted skills and roadmap-based skill gaps
 
-4. **Skills Analysis** (1 min)
-   - Enter student skills
-   - Compare with job requirements
-   - Show gap analysis and recommendations
+4. **Recommendations** (1 min)
+   - Run recommendations; point out course codes when present
+   - Optional: show **NO_MATCH** case (e.g. MS Accounting + Frontend) — honest, no invented courses
 
-5. **Chat (if API key set)** (1 min)
-   - Ask a question
-   - Show RAG retrieval
-   - Display source citations
-
-6. **Technical Overview** (30 sec)
+5. **Technical Overview** (30 sec)
    - Show code structure
    - Explain technologies
    - Highlight compliance features
@@ -246,13 +236,13 @@ All features work **without requiring an API key** (except AI Chat). Degree Plan
 **A:** ChromaDB is free, works perfectly on Streamlit Cloud, and handles our scale. Pinecone is supported if we need to scale later.
 
 ### Q: How do you prevent AI hallucinations?
-**A:** RAG system retrieves ONLY JSOM catalog documents. LLM is explicitly instructed to use only retrieved context. System states when information isn't available.
+**A:** For JSOM Smart Advisor: context is scraped from the **selected program URL only**; the model is instructed to use that text and return **NO_MATCH** rather than invent courses when there is no fit. Optional RAG path uses retrieved catalog chunks only.
 
 ### Q: Is the data up-to-date?
-**A:** Catalog data is from official JSOM source. Scraper script (`scripts/scrape_catalog.py`) can update it anytime.
+**A:** The **JSOM Smart Advisor** flow pulls **live** HTML from the official program URLs configured in `app.py`. The separate `scripts/scrape_catalog.py` pipeline can refresh `catalog.json` for the optional RAG path.
 
 ### Q: What about costs?
-**A:** Everything is free except OpenAI API (for Chat). Degree Plan, Career, and Skills Analysis work without any API costs.
+**A:** Hosting on Streamlit Cloud is free; **xAI Grok** usage is billed per your xAI plan (credits / subscription). Roadmap topic JSON is fetched from public GitHub (no key).
 
 ### Q: How is it ADA compliant?
 **A:** Semantic HTML, ARIA labels, keyboard navigation, screen reader support, high contrast colors.
