@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from typing import List, Dict, Any, Optional
 import json
 import os
+import re
 from urllib.parse import urljoin, urlparse
 
 
@@ -164,6 +165,73 @@ class JSOMCatalogScraper:
             json.dump({"degrees": data}, f, indent=2, ensure_ascii=False)
         
         print(f"Data saved to {output_path}")
+
+    def scrape_program_urls(self, program_urls: Dict[str, str]) -> List[Dict[str, Any]]:
+        """
+        Scrape specific JSOM program URLs and return normalized degree records.
+        This is used to build a vector-DB ready catalog from known program pages.
+        """
+        degrees: List[Dict[str, Any]] = []
+        for name, url in program_urls.items():
+            try:
+                response = self.session.get(url, timeout=30)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.content, "html.parser")
+                main = soup.find("main") or soup.body or soup
+                raw_text = " ".join(main.stripped_strings)
+
+                courses = self._extract_courses_from_text(raw_text)
+
+                level = "graduate"
+                if name.startswith("BS "):
+                    level = "undergraduate"
+
+                degrees.append(
+                    {
+                        "name": name,
+                        "level": level,
+                        "source_url": url,
+                        "total_credits": None,
+                        "core_courses": courses,
+                        "prerequisites": {},
+                        "raw_text": raw_text[:30000],
+                    }
+                )
+            except Exception as e:
+                print(f"Failed to scrape {name} ({url}): {e}")
+                continue
+        return degrees
+
+    def _extract_courses_from_text(self, text: str) -> List[Dict[str, Any]]:
+        """
+        Regex-based course extraction from flattened catalog text.
+        Supports patterns like 'BUAN 6398 Prescriptive Analytics' and
+        'BUAN6398 Prescriptive Analytics'.
+        """
+        pattern = re.compile(r"\b([A-Z]{2,5})\s*(\d{4})\b")
+        courses: List[Dict[str, Any]] = []
+        seen = set()
+        for match in pattern.finditer(text):
+            code = f"{match.group(1)} {match.group(2)}"
+            remainder = text[match.end() : match.end() + 120].strip(" -:|,")
+            title = re.split(r"[.;|]|  ", remainder)[0].strip()
+            title = re.sub(r"\s+", " ", title)
+            if len(title) > 90:
+                title = title[:90].rsplit(" ", 1)[0]
+            if not title:
+                title = "Course title from catalog page"
+            key = (code, title.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            courses.append(
+                {
+                    "code": code,
+                    "name": title,
+                    "credits": 3,
+                }
+            )
+        return courses[:300]
 
 
 class CareerDataScraper:

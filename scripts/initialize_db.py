@@ -31,6 +31,8 @@ def load_catalog_data():
     for degree in data.get('degrees', []):
         # Create document text
         doc_text = f"Degree: {degree.get('name', '')}\n"
+        if degree.get("source_url"):
+            doc_text += f"Source URL: {degree.get('source_url', '')}\n"
         doc_text += f"Total Credits: {degree.get('total_credits', 0)}\n"
         doc_text += f"Level: {degree.get('level', '')}\n\n"
         
@@ -41,6 +43,11 @@ def load_catalog_data():
         doc_text += "\nPrerequisites:\n"
         for course_code, prereqs in degree.get('prerequisites', {}).items():
             doc_text += f"{course_code} requires: {', '.join(prereqs)}\n"
+
+        # Keep a chunk of raw scraped catalog text for retrieval quality.
+        if degree.get("raw_text"):
+            doc_text += "\nCatalog Text (excerpt):\n"
+            doc_text += degree.get("raw_text", "")[:12000]
         
         documents.append(doc_text)
         metadatas.append({
