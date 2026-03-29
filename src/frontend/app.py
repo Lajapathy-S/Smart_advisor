@@ -229,8 +229,8 @@ def fetch_program_context(program_subset: dict[str, str] | None = None) -> str:
             soup = BeautifulSoup(resp.text, "html.parser")
             main = soup.find("main") or soup.body or soup
             text = " ".join(main.stripped_strings)
-            # Limit per-program text to keep prompt size reasonable
-            text = text[:4000]
+            # Enough text for course lists (catalog HTML can be long)
+            text = text[:10000]
             parts.append(f"PROGRAM: {name}\nURL: {url}\n{text}")
         except Exception:
             continue
@@ -726,7 +726,8 @@ def extract_course_catalog(programs_context: str) -> str:
                     title = title[:90].rsplit(" ", 1)[0]
 
             if not title:
-                continue
+                # Code present but no title fragment (common in dense HTML) — still ground the LLM
+                title = "course (title on program page — verify exact wording)"
 
             key = (code, title.lower(), current_program)
             if key in seen:
@@ -739,10 +740,43 @@ def extract_course_catalog(programs_context: str) -> str:
 
 
 DEFAULT_NO_COURSE_MESSAGE = (
-    "Thanks for your selections. We couldn’t reliably extract course listings from the JSOM "
-    "catalog page for this program, or none appeared in the scraped text. Please open the "
-    "official program page linked in your degree plan to confirm required and elective courses."
+    "Thanks for your selections. We couldn’t load enough text from the JSOM program page. "
+    "Please try again later or open the official program page from the UT Dallas catalog."
 )
+
+
+def career_program_alignment_hint(program_name: str, career: str) -> str:
+    """
+    Explicit alignment hints so the model does not return NO_MATCH for obvious fits
+    (e.g. MS Business Analytics + Data Analyst) when HTML scraping omits course-code patterns.
+    """
+    p = program_name.lower()
+    c = career.lower()
+    # Analytics / data careers + analytics degrees
+    if "business analytics" in p and any(
+        x in c for x in ("data analyst", "data engineer", "bi analyst", "analytics")
+    ):
+        return (
+            "ALIGNMENT: STRONG. This degree is intended for analytics and data-informed roles. "
+            "You MUST respond with STATUS: OK. Pull course names and/or codes from the PROGRAM CONTEXT "
+            "below—even if the extracted catalog list is empty (the full page text still applies)."
+        )
+    if "financial technology" in p or "fintech" in p:
+        if any(x in c for x in ("data", "analyst", "engineer", "python", "sql")):
+            return (
+                "ALIGNMENT: STRONG. Use STATUS: OK and recommend from context."
+            )
+    if "information technology" in p or "itm" in p:
+        if any(x in c for x in ("data", "software", "engineer", "developer", "devops", "backend")):
+            return "ALIGNMENT: STRONG. Use STATUS: OK and recommend from context."
+    # Clear mismatch examples only
+    if "accounting" in p and not any(x in c for x in ("account", "audit", "tax", "cpa", "finance")):
+        if any(x in c for x in ("frontend", "android", "ios", "game developer")):
+            return (
+                "ALIGNMENT: WEAK for this combination. Prefer STATUS: NO_MATCH unless the PROGRAM CONTEXT "
+                "clearly lists electives that support the career path."
+            )
+    return ""
 
 
 def build_recommendation_prompt(
@@ -751,55 +785,59 @@ def build_recommendation_prompt(
     goal: str,
     programs_context: str,
     course_catalog: str,
+    program_key: str,
 ) -> str:
     skills_str = ", ".join(skills) if skills else "not clearly specified"
-    catalog_note = (
-        "(The extracted catalog below is empty or incomplete — be extra conservative.)"
-        if not (course_catalog or "").strip()
-        else ""
-    )
+    hint = career_program_alignment_hint(program_key, goal)
+    catalog_note = ""
+    if not (course_catalog or "").strip():
+        catalog_note = (
+            "Note: The auto-extracted course-code list below may be empty because catalog HTML "
+            "does not always match our parser—still use the full PROGRAM CONTEXT for course titles and codes."
+        )
+    else:
+        catalog_note = "Use the extracted lines below as high-confidence anchors when available."
+
     return f"""
 You are the JSOM Smart Advisor at UT Dallas.
 
 Student goal:
 - What they are pursuing: {pursuing}
+- JSOM program (internal): {program_key}
 - Target career path: {goal}
 - Current skills: {skills_str}
+
+{hint}
 
 Below is information from the JSOM program page(s) the student selected (see PROGRAM lines).
 Use ONLY this information to recommend specific subjects (courses) that will help the student
 prepare for the target career path.
 
-CRITICAL – Honest fit check:
-- If this degree’s courses do NOT plausibly prepare someone for the chosen career path
-  (for example, MS Accounting combined with a pure Frontend engineering path),
-  you MUST NOT invent or stretch recommendations.
-- If the extracted catalog is empty or the page text has no usable course list for recommendations,
-  treat that as “no suitable recommendations”.
-- In ANY “no suitable recommendations” case, your ENTIRE output format is:
-  First line exactly: STATUS: NO_MATCH
-  Second line onwards: 2–4 short paragraphs in a polite, reassuring tone explaining that
-  this program’s curriculum doesn’t map well to that career path (or catalog data was insufficient),
-  and suggest they talk to a JSOM advisor or pick a program closer to that career (e.g. MS ITM,
-  Business Analytics, etc. when relevant). Do NOT list course codes in NO_MATCH mode.
+CRITICAL – When to use STATUS: NO_MATCH (only these cases):
+- The PROGRAM CONTEXT below is empty or essentially useless (no course or requirement text), OR
+- The alignment hint says WEAK and the page truly offers no reasonable path to the career.
 
-If and ONLY if there IS a reasonable, honest mapping between THIS program’s courses and the career path:
+Do NOT use NO_MATCH just because the “extracted catalog” block is empty—the full page text still counts.
+
+If STATUS: NO_MATCH:
+- First line exactly: STATUS: NO_MATCH
+- Then 2–4 short polite paragraphs. No invented course codes.
+
+If STATUS: OK (default for strong degree/career pairs like MS Business Analytics + Data Analyst):
 - First line exactly: STATUS: OK
 
 IMPORTANT – Scope (when STATUS: OK):
 - Recommend courses ONLY from the program(s) listed in the context below.
-- Do NOT recommend courses from other JSOM degrees or programs that are not in this context.
+- Do NOT recommend courses from other JSOM degrees.
 
-IMPORTANT – Course codes (when STATUS: OK):
-- For EVERY recommended course you MUST include the official course code from the context/catalog.
-- Format each course line as: COURSE_CODE Course Title (example: BUAN 6398 Prescriptive Analytics).
-- If the context does not list a code, do NOT invent one — treat as NO_MATCH if it would require guessing.
-
-When STATUS: OK, for each recommended course state: code, title, program name, relevance.
+IMPORTANT – Course identification (when STATUS: OK):
+- Prefer lines like: BUAN 6398 Prescriptive Analytics when code + title appear in context.
+- If a code is not visible but the course title appears in the PROGRAM CONTEXT, list the title exactly as shown and note “confirm course code on the official catalog page.”
+- Recommend 3–10 courses when the context supports it.
 
 {catalog_note}
 
-EXTRACTED COURSE CATALOG (code + title from JSOM pages):
+EXTRACTED COURSE CATALOG (regex — may be partial):
 {course_catalog}
 
 JSOM PROGRAMS AND COURSES CONTEXT:
@@ -807,7 +845,7 @@ JSOM PROGRAMS AND COURSES CONTEXT:
 
 Output rules:
 - Start with exactly STATUS: NO_MATCH or STATUS: OK on the first line (no other text on that line).
-- If STATUS: OK, follow with a concise recommendation (3–10 courses when genuinely justified).
+- If STATUS: OK, follow with the recommendation.
 """
 
 
@@ -895,12 +933,16 @@ def main():
                         answer = DEFAULT_NO_COURSE_MESSAGE
                         no_match = True
                     else:
+                        program_key = PURSUIT_TO_PROGRAM.get(
+                            pursuing.strip(), pursuing.strip()
+                        )
                         prompt = build_recommendation_prompt(
                             pursuing.strip(),
                             skills,
                             target_role.strip(),
                             programs_context,
                             course_catalog,
+                            program_key,
                         )
 
                         try:
@@ -911,6 +953,34 @@ def main():
                                 else str(response)
                             )
                             answer, no_match = parse_llm_recommendation(raw_answer)
+                            hint_txt = career_program_alignment_hint(
+                                program_key, target_role.strip()
+                            )
+                            if (
+                                no_match
+                                and "MUST respond with STATUS: OK" in hint_txt
+                            ):
+                                retry_prompt = f"""Your previous answer used STATUS: NO_MATCH, but this pairing is a strong fit for the degree and career.
+
+Career path: {target_role.strip()}
+Program: {program_key}
+
+Use ONLY the text below (same official JSOM page). Reply with:
+First line: STATUS: OK
+Then recommend 3–8 courses. Use course codes when they appear; otherwise use exact course titles as written in the text.
+
+PROGRAM CONTEXT:
+{programs_context[:12000]}
+"""
+                                response = llm.invoke(retry_prompt)
+                                raw_answer = (
+                                    response.content
+                                    if hasattr(response, "content")
+                                    else str(response)
+                                )
+                                answer, no_match = parse_llm_recommendation(
+                                    raw_answer
+                                )
                         except Exception as e:
                             answer = (
                                 "I encountered an error while generating recommendations. "
