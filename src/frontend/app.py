@@ -701,8 +701,10 @@ def extract_course_catalog(programs_context: str) -> str:
     Extract course code + title pairs from scraped program text.
     This helps ground the LLM output in authentic catalog entries.
     """
-    # Capture course codes like BUAN 6398, MIS 6324, ACCT6301
-    code_pattern = re.compile(r"\b([A-Z]{2,5}\s?\d{4})\b")
+    # Course codes: BUAN 6398, MIS 6324, BUAN6398 (catalog HTML varies)
+    code_pattern = re.compile(
+        r"\b([A-Z]{2,5})\s*(\d{4})\b"
+    )
 
     entries: list[str] = []
     seen = set()
@@ -714,7 +716,7 @@ def extract_course_catalog(programs_context: str) -> str:
             continue
 
         for match in code_pattern.finditer(line):
-            code = match.group(1).replace("  ", " ").strip()
+            code = f"{match.group(1)} {match.group(2)}"
             # Try to infer a nearby title from the text right after the code
             remainder = line[match.end() :].strip(" -:|,")
             title = ""
@@ -758,8 +760,8 @@ def career_program_alignment_hint(program_name: str, career: str) -> str:
     ):
         return (
             "ALIGNMENT: STRONG. This degree is intended for analytics and data-informed roles. "
-            "You MUST respond with STATUS: OK. Pull course names and/or codes from the PROGRAM CONTEXT "
-            "below—even if the extracted catalog list is empty (the full page text still applies)."
+            "You MUST respond with STATUS: OK. List individual courses as **CODE Title** lines "
+            "(e.g. BUAN 6398 …) from the PROGRAM CONTEXT — not generic elective/track descriptions."
         )
     if "financial technology" in p or "fintech" in p:
         if any(x in c for x in ("data", "analyst", "engineer", "python", "sql")):
@@ -830,14 +832,19 @@ IMPORTANT – Scope (when STATUS: OK):
 - Recommend courses ONLY from the program(s) listed in the context below.
 - Do NOT recommend courses from other JSOM degrees.
 
-IMPORTANT – Course identification (when STATUS: OK):
-- Prefer lines like: BUAN 6398 Prescriptive Analytics when code + title appear in context.
-- If a code is not visible but the course title appears in the PROGRAM CONTEXT, list the title exactly as shown and note “confirm course code on the official catalog page.”
-- Recommend 3–10 courses when the context supports it.
+IMPORTANT – Output format (when STATUS: OK) — follow exactly:
+- Do NOT write generic “tracks,” “elective categories,” or high-level summaries (bad examples to avoid:
+  “Electives in Data Science,” “Core courses for foundation in tools,” “Flex Program” bullets without course codes).
+- You MUST list **concrete courses** as separate lines. Each line MUST look like:
+  **BUAN 6398 Prescriptive Analytics** (subject code + short title as in the catalog text).
+- When the EXTRACTED COURSE CATALOG block below is non-empty, **prioritize those lines** and include the same codes in your answer.
+- When codes appear anywhere in PROGRAM CONTEXT, copy them — do not paraphrase the degree into tracks.
+- Recommend **5–10 specific courses** when the context lists that many; otherwise as many as are clearly named with codes in the text.
+- After the course list, add 1 short paragraph tying choices to the target career path (data analyst skills: SQL, visualization, statistics, etc.).
 
 {catalog_note}
 
-EXTRACTED COURSE CATALOG (regex — may be partial):
+EXTRACTED COURSE CATALOG (regex — use these first when present):
 {course_catalog}
 
 JSOM PROGRAMS AND COURSES CONTEXT:
@@ -845,7 +852,7 @@ JSOM PROGRAMS AND COURSES CONTEXT:
 
 Output rules:
 - Start with exactly STATUS: NO_MATCH or STATUS: OK on the first line (no other text on that line).
-- If STATUS: OK, follow with the recommendation.
+- If STATUS: OK, second line blank, then your course list (one course per line, CODE + title), then the short paragraph.
 """
 
 
@@ -960,14 +967,18 @@ def main():
                                 no_match
                                 and "MUST respond with STATUS: OK" in hint_txt
                             ):
-                                retry_prompt = f"""Your previous answer used STATUS: NO_MATCH, but this pairing is a strong fit for the degree and career.
+                                retry_prompt = f"""Your previous answer used STATUS: NO_MATCH, but this pairing is a strong fit.
 
 Career path: {target_role.strip()}
 Program: {program_key}
 
-Use ONLY the text below (same official JSOM page). Reply with:
-First line: STATUS: OK
-Then recommend 3–8 courses. Use course codes when they appear; otherwise use exact course titles as written in the text.
+Use ONLY the text below. Reply with:
+Line 1: STATUS: OK
+Line 2: (blank)
+Lines 3+: One course per line in this exact pattern: CODE Title
+Example: BUAN 6398 Prescriptive Analytics
+Do NOT use generic track names or "Electives in …" without a subject code on each line.
+Pull every course line you can find that matches a subject code (like BUAN 6398) in the text.
 
 PROGRAM CONTEXT:
 {programs_context[:12000]}
