@@ -42,7 +42,15 @@ Streamlit Cloud is the easiest and free way to deploy your Streamlit app.
 ### Step 4: Configure Secrets
 
 1. In your app's dashboard, go to **Settings** → **Secrets**
-2. Add your environment variables:
+2. For **JSOM Smart Advisor** (Grok), set at minimum:
+
+```toml
+XAI_API_KEY = "your-xai-api-key-here"
+# optional:
+XAI_MODEL = "grok-3-mini"
+```
+
+3. **Optional** — OpenAI/Pinecone only if you use the separate RAG pipeline:
 
 ```toml
 OPENAI_API_KEY = "your-openai-api-key-here"
@@ -52,7 +60,7 @@ VECTOR_DB_TYPE = "CHROMA"
 CHROMA_PERSIST_DIR = "./data/chroma_db"
 ```
 
-3. Click **"Save"**
+4. Click **"Save"**
 
 ### Step 5: Your App is Live!
 
@@ -87,9 +95,9 @@ https://your-app-name.streamlit.app
 - Verify `src/` directory structure is intact
 
 ### API key errors
-- Double-check secrets are set correctly
-- Ensure no typos in secret names
-- Restart the app after adding secrets
+- For the main app, confirm **`XAI_API_KEY`** (and optional **`XAI_MODEL`**) in Secrets
+- For optional RAG, use **`OPENAI_API_KEY`** / Pinecone as needed
+- Restart the app after saving secrets
 
 ### App crashes on startup
 - Check logs in Streamlit Cloud dashboard
@@ -123,7 +131,7 @@ You can use different configs for different branches:
 
 3. **Monitor usage**
    - Check Streamlit Cloud dashboard for usage stats
-   - Monitor API usage (OpenAI, Pinecone)
+   - Monitor API usage (xAI, optional OpenAI/Pinecone)
 
 4. **Version control**
    - Use git tags for releases

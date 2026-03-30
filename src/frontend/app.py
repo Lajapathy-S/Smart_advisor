@@ -228,11 +228,114 @@ def get_llm():
         return None
 
 
-# Community roadmaps from roadmap.sh (see https://roadmap.sh/, source: developer-roadmap repo)
+# Community roadmaps (developer-roadmap JSON on GitHub)
 ROADMAP_JSON_BASE = (
     "https://raw.githubusercontent.com/kamranahmedse/developer-roadmap/master/"
     "src/data/roadmaps/{slug}/{slug}.json"
 )
+
+# Labels in the JSON include many curriculum / spreadsheet leaf nodes — drop those for skill gaps.
+ROADMAP_LABEL_DROP_EXACT = frozenset(
+    {
+        "optional",
+        "pick a language",
+        "learn the basics",
+        "learn basics",
+        "version control systems",
+        "what is",
+        "roadmap",
+        "roadmap.sh",
+        # Stats / spreadsheet function noise common on data-analyst style roadmaps
+        "mean",
+        "median",
+        "mode",
+        "range",
+        "variance",
+        "skewness",
+        "kurtosis",
+        "dispersion",
+        "trim",
+        "concat",
+        "count",
+        "datedif",
+        "min",
+        "max",
+        "min / max",
+        "min/max",
+        "naive byes",
+        # Generic section / viz UI labels
+        "heatmap",
+        "charting",
+        "histogram",
+        "histograms",
+        "pie charts",
+        "pie chart",
+        "introduction",
+        "exploration",
+        "visualisation",
+        "visualization",
+        "libraries",
+        "frameworks",
+        "collection",
+        "cleanup",
+        "web scraping",
+        "chart",
+        "charts",
+    }
+)
+
+
+def _normalize_roadmap_label_key(raw: str) -> str:
+    t = raw.strip().lower()
+    t = re.sub(r"\s+", " ", t)
+    t = t.replace("min/max", "min / max")
+    return t
+
+
+def _is_noisy_roadmap_label(label: str) -> bool:
+    """True if this JSON node label is too generic to show as a skill gap."""
+    key = _normalize_roadmap_label_key(label)
+    if not key or len(key) < 2:
+        return True
+    if "roadmap.sh" in key or key.endswith(".sh"):
+        return True
+    if key in ROADMAP_LABEL_DROP_EXACT:
+        return True
+    if key.startswith("what is ") or key.startswith("learn ") or key.startswith("pick "):
+        return True
+    # Single generic token (e.g. COUNT, Range) — already in DROP_EXACT for most
+    tokens = [w for w in re.findall(r"[a-z0-9]+", key) if len(w) > 1]
+    if len(tokens) == 1 and tokens[0] in ROADMAP_LABEL_DROP_EXACT:
+        return True
+    return False
+
+
+# Catalog pages often have a very long faculty block before "Course Requirements"; a small
+# slice misses almost all course codes and the model (or fallback) can only see one course.
+_COURSE_SECTION_MARKERS = (
+    "Course Requirements",
+    "Course requirements",
+    "Degree Requirements",
+    "degree requirements",
+    "Required courses:",
+    "Core Courses:",
+    "Core courses:",
+)
+_PROGRAM_PAGE_MAX_CHARS = 52000
+
+
+def _clip_program_page_text(raw: str, max_chars: int = _PROGRAM_PAGE_MAX_CHARS) -> str:
+    """Prefer text from degree/course sections so scraping isn't dominated by faculty lists."""
+    if not raw or len(raw) <= max_chars:
+        return raw[:max_chars] if len(raw) > max_chars else raw
+    best_start = -1
+    for marker in _COURSE_SECTION_MARKERS:
+        idx = raw.find(marker)
+        if idx >= 0 and (best_start < 0 or idx < best_start):
+            best_start = idx
+    if best_start > 1500:
+        raw = raw[best_start:]
+    return raw[:max_chars]
 
 
 @st.cache_resource(show_spinner=False)
@@ -253,8 +356,7 @@ def fetch_program_context(program_subset: dict[str, str] | None = None) -> str:
             soup = BeautifulSoup(resp.text, "html.parser")
             main = soup.find("main") or soup.body or soup
             text = " ".join(main.stripped_strings)
-            # Enough text for course lists (catalog HTML can be long)
-            text = text[:10000]
+            text = _clip_program_page_text(text, _PROGRAM_PAGE_MAX_CHARS)
             parts.append(f"PROGRAM: {name}\nURL: {url}\n{text}")
         except Exception:
             continue
@@ -643,21 +745,10 @@ def fetch_roadmap_labels(roadmap_slug: str) -> list[str]:
     found: set[str] = set()
     _collect_roadmap_labels(data, found)
 
-    noise = frozenset(
-        {
-            "optional",
-            "pick a language",
-            "learn the basics",
-            "learn basics",
-            "version control systems",
-            "what is",
-            "roadmap",
-        }
-    )
     cleaned: list[str] = []
     for s in found:
         sl = s.lower().strip()
-        if sl in noise or len(sl) < 3 or len(s) > 85:
+        if len(sl) < 3 or len(s) > 85 or _is_noisy_roadmap_label(s):
             continue
         cleaned.append(s)
 
@@ -693,7 +784,12 @@ def compute_skill_gaps(
         resume_set = {s.lower().strip() for s in resume_skills}
         matched = [s for s in expected if s in resume_set]
         missing = [s for s in expected if s not in resume_set]
-        return matched, missing, None, "Built-in role baseline (add a more specific target role for roadmap.sh topics)."
+        return (
+            matched,
+            missing,
+            None,
+            "Using a built-in topic baseline for this role. Pick a career path that has a detailed topic checklist for richer gaps.",
+        )
 
     blob = f"{(resume_text or '')} {' '.join(resume_skills)}".lower()
     matched_topics: list[str] = []
@@ -717,7 +813,10 @@ def compute_skill_gaps(
     # Keep UI readable
     missing_topics = missing_topics[:40]
     matched_topics = matched_topics[:35]
-    note = f"Topics derived from roadmap.sh community roadmaps (GitHub: developer-roadmap / `{slug}.json`)."
+    note = (
+        f"Compared your resume to the public role-topic checklist "
+        f"`{slug}` (open-source JSON, developer-roadmap project)."
+    )
     return matched_topics, missing_topics, slug, note
 
 def extract_course_catalog(programs_context: str) -> str:
@@ -905,8 +1004,13 @@ def count_course_lines(text: str) -> int:
     """Count lines that look like concrete course entries (e.g., BUAN 6398 ...)."""
     if not text:
         return 0
-    course_line_re = re.compile(r"^\s*(?:[-*•]|\d+\.)?\s*[A-Z]{2,5}\s\d{4}\b")
-    return sum(1 for line in text.splitlines() if course_line_re.search(line))
+    course_token_re = re.compile(r"[A-Z]{2,5}\s\d{4}\b")
+    n = 0
+    for line in text.splitlines():
+        norm = re.sub(r"[*_`#]+", "", line)
+        if course_token_re.search(norm):
+            n += 1
+    return n
 
 
 def build_fallback_course_list_from_catalog(
@@ -977,7 +1081,7 @@ def main():
             "What career path are you aiming for?",
             options=["Select a career path"] + CAREER_PATH_OPTIONS,
             index=0,
-            help="Career paths aligned to roadmap.sh role-based roadmaps.",
+            help="Career paths mapped to standard industry topic checklists (open-source JSON).",
         )
 
         if st.button("Get JSOM Subject Recommendations"):
@@ -1047,7 +1151,7 @@ Do NOT use generic track names or "Electives in …" without a subject code on e
 Pull every course line you can find that matches a subject code (like BUAN 6398) in the text.
 
 PROGRAM CONTEXT:
-{programs_context[:12000]}
+{programs_context[:min(len(programs_context), 48000)]}
 """
                                 response = llm.invoke(retry_prompt)
                                 raw_answer = (

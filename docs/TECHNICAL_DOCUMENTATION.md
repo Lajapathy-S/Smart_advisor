@@ -16,7 +16,8 @@ This document provides a comprehensive technical overview of the AI Smart Adviso
 | **Secrets** | **`XAI_API_KEY`**; optional **`XAI_MODEL`** (default **`grok-3-mini`**). |
 | **Program scope** | User picks a **JSOM degree from a dropdown**; only that program’s official URL is scraped for context. |
 | **Catalog data** | **Live fetch** of JSOM catalog / program pages using **`requests`** + **`BeautifulSoup`**. |
-| **Skill gaps** | Topics derived from **[roadmap.sh](https://roadmap.sh/)** community roadmaps (JSON from the public **`kamranahmedse/developer-roadmap`** repo on GitHub), compared to resume text + extracted skills. |
+| **Skill gaps** | Topic labels from the public **`kamranahmedse/developer-roadmap`** JSON (same content family as roadmap.sh), compared to resume text + extracted skills (no LLM for this step). The results UI does not surface an extra roadmap marketing link. |
+| **Program URLs** | Canonical map: **`src/data_processing/jsom_programs.py`** (`PROGRAM_URLS`); `app.py` may use an inline fallback if package imports fail on Streamlit Cloud. |
 | **Resume** | PDF/TXT via **`pypdf`**; heuristic skill extraction. |
 | **No false courses** | Model must return **`STATUS: NO_MATCH`** with a polite explanation when the degree does not align with the career path or catalog text is insufficient—no invented course lists. |
 
@@ -215,17 +216,13 @@ Degree planner, career mentor, and tabbed chat/RAG UI can be wired separately; t
 
 **Implementation:**
 - **File:** `src/data_processing/scraper.py`
-- **Class:** `JSOMCatalogScraper`
-- **Process:**
-  1. Fetches HTML from JSOM catalog URL using `requests.Session()`
-  2. Parses HTML with `BeautifulSoup(html.parser)`
-  3. Extracts degree programs, courses, prerequisites
-  4. Structures data as JSON
-  5. Saves to `data/jsom_catalog/catalog.json`
+- **Class:** `JSOMCatalogScraper` — legacy single-URL catalog scrape into structured JSON
+- **Bulk helper:** `scrape_program_urls()` — iterates **`PROGRAM_URLS`** from `jsom_programs.py`, merges programs into one list, writes **`data/jsom_catalog/catalog.json`**
 
-**Script:** `scripts/scrape_catalog.py` - Run to update catalog data
+**Scripts:**
+- **`scripts/scrape_catalog.py`** — run to refresh **`catalog.json`** from **all** configured program URLs (used by **`initialize_db.py`** / optional RAG).
 
-**Note:** Current implementation uses pre-loaded JSON data. Scraper is available for future updates.
+**Main app path:** `src/frontend/app.py` uses **`requests`** + **BeautifulSoup** directly on the **single URL** for the user’s selected program (`fetch_program_context`); it does not require `catalog.json` to be present for recommendations.
 
 ---
 
@@ -234,8 +231,14 @@ Degree planner, career mentor, and tabbed chat/RAG UI can be wired separately; t
 ### Requirement: JSOM Catalog as Source of Truth
 
 **Implementation:**
-- **Primary Data Source:** `data/jsom_catalog/catalog.json`
-- **RAG System:** Vector database indexes ONLY JSOM catalog content
+
+**A) JSOM Smart Advisor (Streamlit):**
+- **Primary source:** live HTML from the **selected** official program URL (scraped each run).
+- **Grounding aids:** regex extraction of **course code + title** lines from that HTML when present; LLM instructions require **STATUS: NO_MATCH** instead of inventing courses.
+
+**B) Optional RAG pipeline:**
+- **Primary data file:** `data/jsom_catalog/catalog.json` (from `scrape_catalog.py`)
+- **RAG:** Vector database indexes JSOM-derived documents from that JSON
 - **Prompt Engineering:** Explicit instructions to LLM:
   ```
   "Use ONLY the following context from the official JSOM catalog 
@@ -340,62 +343,48 @@ All responses include structured data using Schema.org vocabulary:
 
 ## 6. System Architecture
 
-### 6.1 Component Diagram
+### 6.1 Primary: JSOM Smart Advisor (`src/frontend/app.py`)
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                  Streamlit Frontend                      │
-│  (src/frontend/app.py)                                   │
-│  - Chat Interface                                        │
-│  - Degree Plan Tab                                       │
-│  - Career Tab                                            │
-│  - Skills Analysis Tab                                   │
-└──────────────┬──────────────────────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────────────────────┐
-│                  Chatbot Coordinator                     │
-│  (src/core/chatbot.py)                                   │
-│  - Intent Classification                                 │
-│  - Message Routing                                       │
-│  - Response Formatting                                   │
-└──────────────┬──────────────────────────────────────────┘
-               │
-       ┌───────┴───────┬──────────────┬──────────────┐
-       ▼               ▼              ▼              ▼
-┌──────────┐  ┌──────────────┐  ┌──────────┐  ┌──────────┐
-│   RAG    │  │   Degree     │  │  Career  │  │  Skills  │
-│  Engine  │  │   Planner    │  │  Mentor  │  │ Analyzer │
-└────┬─────┘  └──────────────┘  └──────────┘  └──────────┘
-     │
-     ▼
-┌─────────────────────────────────────────────────────────┐
-│              Vector Database (ChromaDB)                  │
-│  - JSOM Catalog Embeddings                               │
-│  - Document Metadata                                     │
-│  - Similarity Search                                     │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  Streamlit — JSOM Smart Advisor (single page)                  │
+│  Program dropdown → Career path → Resume (PDF/TXT)           │
+└────────────────────────────┬─────────────────────────────────┘
+                             │
+     ┌───────────────────────┼───────────────────────┐
+     ▼                       ▼                       ▼
+┌─────────────┐      ┌─────────────────┐     ┌──────────────────┐
+│ requests +  │      │ Heuristic       │     │ Roadmap JSON     │
+│ BeautifulSoup│     │ skill extract   │     │ (GitHub HTTP)    │
+│ (1 program  │      │ (no LLM)        │     │ vs resume gaps   │
+│  URL)       │      │                 │     │ (no LLM)         │
+└──────┬──────┘      └────────┬────────┘     └────────┬─────────┘
+       │                    │                        │
+       └────────────────────┴────────────────────────┘
+                            ▼
+                 ┌──────────────────────┐
+                 │ ChatXAI (Grok)       │
+                 │ langchain-xai        │
+                 │ XAI_API_KEY          │
+                 └──────────────────────┘
 ```
 
-### 6.2 Data Flow
+### 6.2 Optional: RAG chat + planner modules
 
-**Chat Query Flow:**
-1. User submits question in Streamlit chat interface
-2. Chatbot classifies intent (degree/career/skills/general)
-3. For general queries: RAG Engine retrieves relevant JSOM catalog documents
-4. Documents formatted as context string
-5. LLM generates answer using context + question
-6. Response returned with source documents
-7. Displayed in chat interface with structured data
+```
+Client (Streamlit or script)
+        │
+        ▼
+┌───────────────────┐     ┌─────────────┐ ┌──────────┐ ┌──────────┐
+│ chatbot.py        │────►│ RAG Engine  │ │ Planner  │ │ Mentor / │
+│ (intent, route)   │     │ + Chroma    │ │ module   │ │ Analyzer │
+└───────────────────┘     │ OpenAI emb. │ └──────────┘ └──────────┘
+                          └─────────────┘
+```
 
-**Degree Planning Flow:**
-1. User selects degree and year in sidebar
-2. Degree Planner loads catalog data
-3. Filters courses based on completed courses
-4. Applies prerequisite logic
-5. Generates semester-by-semester plan
-6. Returns structured JSON-LD data
-7. Displayed as interactive tables
+**Optional RAG flow:** question → Chroma retrieval → context → `ChatOpenAI` (needs `OPENAI_API_KEY` and ingested docs).
+
+**Degree planner (module):** `catalog.json` → prerequisite logic → semester plan — not the default `app.py` UI unless integrated separately.
 
 ---
 
@@ -491,7 +480,9 @@ answer = chain.invoke({"context": context, "question": question})
 
 ### 9.1 RAG (Retrieval-Augmented Generation)
 
-**Purpose:** Prevent hallucinations by grounding LLM responses in JSOM catalog
+**Scope:** This subsection describes the **optional** pipeline in `src/core/rag_engine.py`. The **JSOM Smart Advisor** page does **not** use vector retrieval; it grounds Grok on **scraped program HTML** (see §6.1).
+
+**Purpose (RAG path):** Ground LLM answers in retrieved JSOM catalog chunks from Chroma.
 
 **Process:**
 1. User query → Embedding vector

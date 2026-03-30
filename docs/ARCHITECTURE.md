@@ -1,66 +1,71 @@
 # Architecture Documentation
 
-## System Overview
+## System overview
 
-The AI Smart Advisor is a chatbot interface built using a RAG (Retrieval-Augmented Generation) architecture to provide personalized student guidance.
+The repository contains **two related architectures**:
 
-## Components
+1. **JSOM Smart Advisor (primary Streamlit app)** — single-page tool: program + career dropdowns, resume upload, live scrape of one JSOM program page, heuristic skills + roadmap-topic gaps, **Grok** for final recommendations.
+2. **Optional RAG chatbot stack** — Chroma + OpenAI embeddings + LangChain LCEL for catalog-grounded Q&A (`src/core/rag_engine.py`, `src/core/chatbot.py`).
 
-### 1. Core Module (`src/core/`)
-- **RAG Engine**: Handles document retrieval and context augmentation
-- **Chatbot**: Main interface coordinating between modules
+---
 
-### 2. Degree Planning Module (`src/degree_planning/`)
-- Creates logic-based course paths
-- Uses JSOM catalog as source of truth
-- Generates semester-by-semester plans
+## Primary path: JSOM Smart Advisor (`src/frontend/app.py`)
 
-### 3. Career Mentorship Module (`src/career_mentorship/`)
-- Provides career trajectory information
-- Lists required technical and soft skills
-- Offers career path guidance
+```
+User → Streamlit UI
+  → Resume: pypdf / text decode → extract_skills_from_resume (rules)
+  → Career path → roadmap_slug → fetch_roadmap_labels (HTTP JSON) → compute_skill_gaps
+  → Program choice → PROGRAM_URLS → fetch_program_context (requests + BeautifulSoup)
+  → extract_course_catalog (regex)
+  → build_recommendation_prompt → ChatXAI (Grok) → parse + optional fallback list
+  → Markdown output
+```
 
-### 4. Skills Analysis Module (`src/skills_analysis/`)
-- Compares student profile against job requirements
-- Identifies skills gaps
-- Generates actionable recommendations
+**Source of truth for courses (this path):** the **official program URL** scraped at request time, plus regex-extracted code/title lines when present.
 
-### 5. Data Processing Module (`src/data_processing/`)
-- Web scraping using BeautifulSoup
-- JSOM catalog data extraction
-- Career data aggregation
+---
 
-### 6. Frontend (`src/frontend/`)
-- Streamlit-based web interface
-- ADA-compliant design
-- Real-time chat interface
+## Optional path: RAG chatbot
 
-## Data Flow
+```
+User query → chatbot intent → RAGEngine
+  → Chroma retriever → context string → ChatOpenAI → answer
+```
 
-1. User inputs query through Streamlit interface
-2. Chatbot classifies intent (degree planning, career, skills)
-3. Query routed to appropriate module
-4. Module uses RAG engine to retrieve relevant information
-5. Response generated with structured data (JSON-LD)
-6. Response displayed to user with sources
+**Source of truth (this path):** documents built from `data/jsom_catalog/catalog.json` (populated by `scripts/scrape_catalog.py` + `scripts/initialize_db.py`).
 
-## Vector Database
+---
 
-- Supports both Pinecone and ChromaDB
-- Stores JSOM catalog content as embeddings
-- Enables semantic search for relevant information
+## Components (repository layout)
 
-## Structured Data
+### `src/core/`
+- **RAG Engine** — retrieval + OpenAI chat (optional pipeline)
+- **Chatbot** — coordinates optional chat flow
 
-All responses include JSON-LD structured data using Schema.org vocabulary:
-- Educational credentials for degrees
-- Occupation data for careers
-- Skill assessments for gap analysis
+### `src/degree_planning/`, `src/career_mentorship/`, `src/skills_analysis/`
+- Standalone modules aligned with original project requirements; **not** the main Streamlit page flow unless wired separately.
 
-## Accessibility
+### `src/data_processing/`
+- **`jsom_programs.py`** — shared `PROGRAM_URLS` registry
+- **`scraper.py`** — `JSOMCatalogScraper` (legacy catalog page scrape + **`scrape_program_urls`** for all configured program URLs)
 
-- Semantic HTML structure
-- ARIA labels and roles
-- Keyboard navigation support
-- Screen reader compatibility
-- Color contrast compliance
+### `scripts/`
+- **`scrape_catalog.py`** — scrape all `PROGRAM_URLS` → `data/jsom_catalog/catalog.json`
+- **`initialize_db.py`** — load JSON → build text docs → `RAGEngine.add_documents` → Chroma
+
+### `src/frontend/`
+- **`app.py`** — JSOM Smart Advisor UI and orchestration
+
+---
+
+## Vector database
+
+- **ChromaDB** (default) or **Pinecone** (config) for the **RAG** path only.
+- Persist directory: `data/chroma_db/` (see `config/config.yaml`).
+
+---
+
+## Accessibility & structured data
+
+- Streamlit UI uses semantic structure where applicable; custom CSS for branding.
+- Original modules may emit JSON-LD-style structures; the main advisor page focuses on human-readable recommendations.

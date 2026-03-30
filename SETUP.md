@@ -1,115 +1,62 @@
 # Setup Guide
 
-## Quick Start
+## Quick start (JSOM Smart Advisor)
 
-1. **Install Dependencies**
+1. **Install dependencies**
    ```bash
    pip install -r requirements.txt
    ```
 
-2. **Configure Environment**
+2. **Environment**
    - Copy `config/.env.example` to `config/.env`
-   - Add your API keys:
-     - `OPENAI_API_KEY`: Required for LLM functionality
-     - `PINECONE_API_KEY`: Optional, if using Pinecone
-     - `PINECONE_ENVIRONMENT`: Optional, if using Pinecone
+   - Set **`XAI_API_KEY`** (required for recommendations in `src/frontend/app.py`)
+   - Optional: **`XAI_MODEL`** (e.g. `grok-3-mini`)
 
-3. **Initialize Vector Database**
-   ```bash
-   python scripts/initialize_db.py
-   ```
-   This will scrape the JSOM catalog and populate the vector database.
-
-4. **Run the Application**
+3. **Run the app**
    ```bash
    streamlit run src/frontend/app.py
    ```
+   Or: `python run.py`
 
-## Detailed Setup
+No vector database is required for the main advisor flow (it scrapes the selected program URL per session).
 
-### Prerequisites
-- Python 3.9 or higher
-- pip package manager
-- OpenAI API key (for LLM functionality)
+---
 
-### Step-by-Step Installation
+## Optional: catalog JSON + vector DB (RAG path)
 
-1. **Create Virtual Environment** (Recommended)
+Use this only if you want **`src/core/rag_engine.py`** / chatbot retrieval over `catalog.json`.
+
+1. **Scrape all program URLs** into one JSON file:
    ```bash
-   python -m venv venv
-   venv\Scripts\activate  # Windows
-   # or
-   source venv/bin/activate  # Linux/Mac
+   python scripts/scrape_catalog.py
    ```
+   URLs come from **`src/data_processing/jsom_programs.py`** (`PROGRAM_URLS`).
 
-2. **Install Dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Set Up Environment Variables**
-   ```bash
-   cp config/.env.example config/.env
-   ```
-   Edit `config/.env` and add your API keys.
-
-4. **Prepare Data**
-   - The sample catalog data is already in `data/jsom_catalog/catalog.json`
-   - For production, use the scraper to get latest data:
-     ```bash
-     python scripts/scrape_catalog.py
-     ```
-
-5. **Initialize Vector Database**
+2. **Embed into Chroma** (requires **`OPENAI_API_KEY`** in `config/.env` for default embeddings):
    ```bash
    python scripts/initialize_db.py
    ```
-   This creates embeddings and stores them in ChromaDB (or Pinecone if configured).
 
-6. **Run Application**
-   ```bash
-   streamlit run src/frontend/app.py
-   ```
+3. Configure **`vector_db`** in `config/config.yaml` and optional Pinecone vars if not using Chroma.
 
-## Configuration Options
+---
 
-### Vector Database Choice
+## Prerequisites
 
-**ChromaDB (Default)**
-- No additional setup required
-- Data stored locally in `data/chroma_db/`
-- Set `VECTOR_DB_TYPE=CHROMA` in `.env`
+- Python 3.9+
+- **`XAI_API_KEY`** for the primary Streamlit experience
+- **`OPENAI_API_KEY`** only for the optional RAG ingest / OpenAI chat path
 
-**Pinecone**
-- Requires Pinecone account and API key
-- Set `VECTOR_DB_TYPE=PINECONE` in `.env`
-- Configure `PINECONE_API_KEY` and `PINECONE_ENVIRONMENT`
-
-### LLM Configuration
-
-Edit `config/config.yaml` to change:
-- Model: `gpt-4-turbo-preview`, `gpt-3.5-turbo`, etc.
-- Temperature: Controls randomness (0.0-1.0)
-- Max tokens: Maximum response length
+---
 
 ## Troubleshooting
 
-### Import Errors
-If you encounter import errors, ensure all dependencies are installed:
-```bash
-pip install -r requirements.txt --upgrade
-```
+- **Import errors:** `pip install -r requirements.txt --upgrade`
+- **“Add API key” in app:** set **`XAI_API_KEY`** (not OpenAI) for the JSOM Smart Advisor page
+- **Chroma / RAG:** ensure `data/chroma_db/` is writable and `OPENAI_API_KEY` is set if using `initialize_db.py`
 
-### Vector Database Issues
-- For ChromaDB: Ensure `data/chroma_db/` directory exists and is writable
-- For Pinecone: Verify API keys and index name
+## Next steps
 
-### API Key Issues
-- Ensure `.env` file exists in `config/` directory
-- Verify API keys are correct and have sufficient credits/quota
-
-## Next Steps
-
-- Review `docs/ARCHITECTURE.md` for system design
-- Check `README.md` for feature overview
-- Explore the codebase starting with `src/core/chatbot.py`
+- **`docs/ARCHITECTURE.md`** — primary vs optional pipelines
+- **`docs/TECHNICAL_SUMMARY.md`** — one-page technical reference
+- **`src/frontend/app.py`** — main application entry

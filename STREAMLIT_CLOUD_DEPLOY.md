@@ -1,94 +1,85 @@
 # Deploy to Streamlit Cloud (Option 1)
 
-Follow these steps to deploy your AI Smart Advisor to **Streamlit Cloud** for free.
+Steps to deploy **JSOM Smart Advisor** to **Streamlit Community Cloud** (free).
 
 ---
 
 ## Step 1: Put your code on GitHub
 
-1. **Create a new repository** on GitHub:
-   - Go to [github.com/new](https://github.com/new)
-   - Name it (e.g. `ai-smart-advisor`)
-   - Choose **Public**
-   - Do **not** add a README (you already have one)
-   - Click **Create repository**
-
-2. **Push this project** from your machine:
+1. Create a **public** repo on [github.com/new](https://github.com/new) (no need to add a README if you already have one).
+2. Push this project:
 
    ```bash
    cd "c:\LAJA\Semester 3\RPA\PartA_AI_Smart_Advisor"
 
    git init
    git add .
-   git commit -m "Initial commit - AI Smart Advisor"
+   git commit -m "Initial commit - JSOM Smart Advisor"
    git branch -M main
    git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
    git push -u origin main
    ```
 
-   Replace `YOUR_USERNAME` and `YOUR_REPO_NAME` with your GitHub username and repo name.
-
 ---
 
 ## Step 2: Sign in to Streamlit Cloud
 
-1. Go to **[share.streamlit.io](https://share.streamlit.io)**
-2. Click **Sign up** and sign in with your **GitHub** account
-3. Authorize Streamlit Cloud to access your GitHub repos
+1. Open **[share.streamlit.io](https://share.streamlit.io)**
+2. Sign up / sign in with **GitHub** and authorize Streamlit Cloud.
 
 ---
 
 ## Step 3: Deploy the app
 
-1. On Streamlit Cloud, click **"New app"**.
-2. Fill in:
-   - **Repository**: `YOUR_USERNAME/YOUR_REPO_NAME`
-   - **Branch**: `main`
-   - **Main file path**: `src/frontend/app.py`
-   - **App URL** (optional): e.g. `ai-smart-advisor` → your app will be at  
-     `https://ai-smart-advisor.streamlit.app`
-3. Click **"Deploy"**.
+1. Click **New app**.
+2. Set:
+   - **Repository:** `YOUR_USERNAME/YOUR_REPO_NAME`
+   - **Branch:** `main`
+   - **Main file path:** `src/frontend/app.py`
+3. Click **Deploy**.
 
 ---
 
-## Step 4: Add your secrets (API key)
+## Step 4: Secrets (API keys)
 
-1. After the app is created, open it and go to the **⋮** menu (top right) → **Settings**.
-2. Open the **Secrets** tab.
-3. Paste the following and replace the placeholder with your real key:
+The **main app** uses **xAI Grok** — add **`XAI_API_KEY`** in Streamlit **Settings → Secrets**:
 
-   ```toml
-   OPENAI_API_KEY = "sk-your-openai-api-key-here"
-   ```
+```toml
+XAI_API_KEY = "xai-your-key-here"
+# optional:
+XAI_MODEL = "grok-3-mini"
+```
 
-4. Click **Save**. The app will restart and the **Chat** tab will work once the key is set.
+Save; the app will restart.
 
-Optional (only if you use Pinecone):
+**Optional** — only if you later wire OpenAI-based RAG/embeddings on Cloud:
 
 ```toml
 OPENAI_API_KEY = "sk-..."
-PINECONE_API_KEY = "your-pinecone-key"
-PINECONE_ENVIRONMENT = "your-pinecone-environment"
+```
+
+Pinecone (optional RAG):
+
+```toml
+PINECONE_API_KEY = "..."
+PINECONE_ENVIRONMENT = "..."
 ```
 
 ---
 
-## Step 5: Use your app
+## Step 5: Use the app
 
-- Your app URL will be something like:  
-  **`https://your-app-name.streamlit.app`**
-- **Degree Plan**, **Career**, and **Skills Analysis** work without any API key.
-- **Chat** works after you add `OPENAI_API_KEY` in Secrets.
+- URL shape: **`https://your-app-name.streamlit.app`**
+- **JSOM Smart Advisor** needs **`XAI_API_KEY`** for recommendations. Live scraping and roadmap JSON fetches do not require OpenAI.
 
 ---
 
 ## Checklist
 
-- [ ] Code is on GitHub (main branch).
-- [ ] New app created on Streamlit Cloud with main file: `src/frontend/app.py`.
-- [ ] `OPENAI_API_KEY` added in **Settings → Secrets**.
-- [ ] App loads; Degree Plan / Career / Skills tabs work.
-- [ ] After adding the key, Chat tab works.
+- [ ] Code on GitHub (`main`).
+- [ ] App main file: **`src/frontend/app.py`**
+- [ ] **`XAI_API_KEY`** in **Settings → Secrets**
+- [ ] App loads; program + career + resume flow works after key is set
 
 ---
 
@@ -96,25 +87,19 @@ PINECONE_ENVIRONMENT = "your-pinecone-environment"
 
 | Issue | What to do |
 |--------|------------|
-| "App not found" or build fails | Check that **Main file path** is exactly `src/frontend/app.py` and that `requirements.txt` is in the repo root. |
-| Chat says add API key | Add `OPENAI_API_KEY` in **Settings → Secrets** and save. |
-| Import or module errors | Ensure all dependencies are in `requirements.txt` and that you pushed the latest code. |
-| App is slow or times out | Streamlit Cloud free tier has limits; first load after sleep can be slow. |
+| Build fails | Confirm **`requirements.txt`** at repo root and main file path exactly **`src/frontend/app.py`**. |
+| Recommendations / LLM errors | Set **`XAI_API_KEY`** (and optional **`XAI_MODEL`**). |
+| Import errors | Dependencies in **`requirements.txt`**; push latest code. |
+| Slow first load | Free tier cold start; retry after a minute. |
 
 ---
 
 ## Updating the app
 
-Push changes to your `main` branch:
+Push to `main`; Streamlit Cloud redeploys automatically.
 
 ```bash
 git add .
-git commit -m "Your update message"
+git commit -m "Update app"
 git push origin main
 ```
-
-Streamlit Cloud will automatically redeploy the app.
-
----
-
-You’re done. Your app is live on Streamlit Cloud.

@@ -1,6 +1,6 @@
 # Technical Summary – JSOM Smart Advisor / AI Smart Advisor
 
-Answers to: **orchestration**, **hosting**, **LLM**, **vector storage**, **frontend**, and **data scraping**.
+Concise reference for **orchestration**, **hosting**, **LLM**, **vector storage**, **frontend**, and **data**.
 
 ---
 
@@ -10,12 +10,12 @@ Answers to: **orchestration**, **hosting**, **LLM**, **vector storage**, **front
 
 | Path | File(s) | What |
 |------|---------|------|
-| **Primary (deployed demo)** | `src/frontend/app.py` | **`langchain_xai.ChatXAI`** (Grok) for recommendations; context = scraped JSOM pages + prompt |
+| **Primary (Streamlit demo)** | `src/frontend/app.py` | **`langchain_xai.ChatXAI`** (Grok) for final course recommendations; context = scraped JSOM program page + prompt |
 | **Optional RAG / chat** | `src/core/rag_engine.py`, `src/core/chatbot.py` | **`langchain_openai`** (embeddings + `ChatOpenAI`), Chroma, LCEL — requires **`OPENAI_API_KEY`** if you run this flow |
 
-**Packages (see `requirements.txt`):** `langchain`, `langchain-core`, `langchain-community`, **`langchain-xai`**, `langchain-openai`, `langchain-text-splitters`.
+**Packages:** `langchain`, `langchain-core`, `langchain-community`, **`langchain-xai`**, `langchain-openai`, `langchain-text-splitters`.
 
-LlamaIndex is **not** used in the current code paths described above.
+LlamaIndex is **not** used.
 
 ---
 
@@ -25,57 +25,59 @@ LlamaIndex is **not** used in the current code paths described above.
 
 | What | Details |
 |------|---------|
-| **Platform** | [Streamlit Community Cloud](https://share.streamlit.io) |
-| **Entry file** | `src/frontend/app.py` |
+| **Entry** | `src/frontend/app.py` |
 | **Secrets** | **`XAI_API_KEY`**, optional **`XAI_MODEL`** (e.g. `grok-3-mini`) |
-| **Optional** | `OPENAI_API_KEY` only if using the separate RAG/chat pipeline |
-
-**Docs:** `STREAMLIT_CLOUD_DEPLOY.md`, `README_DEPLOYMENT.md`
+| **Optional** | `OPENAI_API_KEY` only for the separate RAG/chat pipeline |
 
 ---
 
 ## 3. LLM (production app)
 
-- **Provider:** xAI (**Grok**)
-- **LangChain:** `ChatXAI`
-- **Config:** env / Streamlit Secrets — **`XAI_API_KEY`**, **`XAI_MODEL`** (default `grok-3-mini` in code)
+- **Provider:** xAI **Grok** via **`ChatXAI`**
+- **Used for:** synthesizing recommendations from scraped program text + resume/skills + career path (not for PDF parsing or keyword skill extraction)
+- **Guardrails:** `STATUS: OK` / `STATUS: NO_MATCH`; alignment hints; fallback list from regex-extracted catalog lines if the model returns too few concrete courses
 
 ---
 
-## 4. Vector storage
+## 4. What is *not* LLM-based
 
-**Default in config:** ChromaDB for the **optional** RAG path (`rag_engine.py`).
-
-| Option | When |
-|--------|------|
-| **ChromaDB** | RAG pipeline + `scripts/initialize_db.py` |
-| **Pinecone** | Optional via `config.yaml` |
-
-The **JSOM Smart Advisor** page does **not** require Chroma for its main recommendations (scraped text goes straight into the Grok prompt).
+- **Resume text:** `pypdf` (PDF) or UTF-8 decode (TXT)
+- **Skills from resume:** heuristics + keyword lists in `app.py` (`extract_skills_from_resume`)
+- **Skill gaps (UI):** roadmap JSON labels vs resume text (`fetch_roadmap_labels`, `compute_skill_gaps`) — no LLM call for that step
+- **Program HTML:** `requests` + `BeautifulSoup` (`fetch_program_context`)
+- **Course-code anchors:** regex on scraped text (`extract_course_catalog`)
 
 ---
 
-## 5. Frontend
+## 5. Vector storage (optional)
 
-**Streamlit — `src/frontend/app.py`**
+| When | What |
+|------|------|
+| **RAG/chat** | Chroma (or Pinecone) via `rag_engine.py` |
+| **Populate** | `python scripts/scrape_catalog.py` → writes `data/jsom_catalog/catalog.json` from **all URLs** in `src/data_processing/jsom_programs.py` → `python scripts/initialize_db.py` embeds into Chroma |
 
-| Feature | Description |
-|---------|-------------|
-| **Program** | Dropdown → maps to one JSOM program URL |
-| **Career path** | Dropdown (roadmap.sh–aligned role names) |
-| **Resume** | PDF/TXT upload |
-| **Output** | Skills detected, roadmap-based gaps, Grok recommendations or **NO_MATCH** polite message |
+The **JSOM Smart Advisor** main flow does **not** query Chroma; it scrapes the **selected** program URL per request.
 
 ---
 
-## 6. How JSOM data is loaded (main app)
+## 6. Frontend (`src/frontend/app.py`)
 
-1. **`PROGRAM_URLS`** in `app.py` — official URLs per degree.
-2. **`requests.get`** + **`BeautifulSoup`** — scrape selected program page(s).
-3. Optional **regex** extraction of course codes for grounding the LLM.
-4. **Skill gaps:** fetch roadmap JSON from **`kamranahmedse/developer-roadmap`** (same content family as [roadmap.sh](https://roadmap.sh/)), extract topic labels, compare to resume.
+| UI | Behavior |
+|----|----------|
+| **What program are you pursuing?** | Dropdown → maps to internal program key + URL |
+| **Career path** | Dropdown (roadmap-aligned names) |
+| **Resume** | PDF/TXT |
+| **Output** | Skills detected, skill-gap topics, Grok recommendations (or NO_MATCH) |
+| **Branding** | Optional logo from `assets/comet-smart-advisor.png` (CSS corner placement) |
 
-**Separate pipeline (catalog JSON + vector DB):** `src/data_processing/scraper.py`, `scripts/scrape_catalog.py`, `scripts/initialize_db.py` — used for the RAG/catalog path, not required for the live-scrape advisor flow.
+Roadmap topic data is loaded from GitHub JSON; the UI no longer shows an extra “explore roadmap.sh” marketing line in results (logic may still use roadmap data internally).
+
+---
+
+## 7. Program URL registry
+
+- **Canonical list:** `src/data_processing/jsom_programs.py` → **`PROGRAM_URLS`**
+- **`app.py`** imports it when package resolution works; otherwise uses an inline fallback dict for Streamlit Cloud.
 
 ---
 
@@ -85,11 +87,10 @@ The **JSOM Smart Advisor** page does **not** require Chroma for its main recomme
 |----------|--------|
 | **Orchestration (demo)** | LangChain + **`langchain_xai`** + Grok in `src/frontend/app.py` |
 | **Orchestration (optional)** | LangChain + OpenAI + Chroma in `src/core/rag_engine.py` |
-| **Hosting** | Streamlit Cloud; secrets **`XAI_API_KEY`** |
-| **Vector storage** | Chroma (optional RAG); not used for main scrape→Grok flow |
-| **Frontend** | Streamlit single-page JSOM Smart Advisor |
-| **JSOM source (demo)** | Live scrape of program URLs in `app.py` |
-| **Skill gaps** | roadmap.sh–style JSON from developer-roadmap GitHub |
+| **Hosting secrets** | **`XAI_API_KEY`** (+ optional **`XAI_MODEL`**) |
+| **Vector DB** | Optional; `scrape_catalog.py` + `initialize_db.py` |
+| **JSOM text (demo)** | Live scrape of selected program URL |
+| **Skill gaps** | Roadmap JSON topics vs resume (no LLM) |
 
 ---
 
@@ -97,8 +98,9 @@ The **JSOM Smart Advisor** page does **not** require Chroma for its main recomme
 
 | Concern | File(s) |
 |---------|---------|
-| **JSOM Smart Advisor (demo)** | `src/frontend/app.py` |
+| **JSOM Smart Advisor** | `src/frontend/app.py` |
+| **Program URLs** | `src/data_processing/jsom_programs.py` |
+| **Bulk scrape → JSON** | `src/data_processing/scraper.py`, `scripts/scrape_catalog.py` |
+| **Chroma ingest** | `scripts/initialize_db.py`, `src/core/rag_engine.py` |
 | **RAG / chat (optional)** | `src/core/rag_engine.py`, `src/core/chatbot.py` |
-| **Degree / career / analyzer modules** | `src/degree_planning/`, `src/career_mentorship/`, `src/skills_analysis/` |
-| **Config** | `config/config.yaml`, `config/.env` / Streamlit Secrets |
-| **Catalog scrape (JSON pipeline)** | `src/data_processing/scraper.py`, `scripts/scrape_catalog.py` |
+| **Legacy modules** | `src/degree_planning/`, `src/career_mentorship/`, `src/skills_analysis/` |

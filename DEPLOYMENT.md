@@ -27,12 +27,12 @@ Streamlit Cloud is the easiest way to deploy your Streamlit app for free.
 
 4. **Configure Secrets**
    - In Streamlit Cloud dashboard, go to Settings → Secrets
-   - Add your environment variables:
+   - For **JSOM Smart Advisor** (Grok), use TOML format, for example:
+     ```toml
+     XAI_API_KEY = "your_xai_key_here"
+     XAI_MODEL = "grok-3-mini"
      ```
-     OPENAI_API_KEY=your_key_here
-     PINECONE_API_KEY=your_key_here (if using Pinecone)
-     PINECONE_ENVIRONMENT=your_env_here
-     ```
+   - Optional (RAG / Pinecone only): `OPENAI_API_KEY`, `PINECONE_API_KEY`, `PINECONE_ENVIRONMENT`
 
 5. **Your app will be live at**: `https://your-app-name.streamlit.app`
 
@@ -91,7 +91,14 @@ Note: Cloudflare Workers have limited Python support. Consider using Pyodide or 
 
 ## Environment Variables for Production
 
-Make sure to set these in your hosting platform:
+**Main Streamlit app (recommendations):**
+
+```
+XAI_API_KEY=your_xai_api_key
+XAI_MODEL=grok-3-mini
+```
+
+**Optional RAG / vector DB:**
 
 ```
 OPENAI_API_KEY=your_openai_api_key

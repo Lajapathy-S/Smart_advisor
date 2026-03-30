@@ -47,8 +47,10 @@ cloudflared tunnel --url http://localhost:8501
 ### Using Docker Compose (Easiest)
 
 ```bash
-# Set environment variables
-export OPENAI_API_KEY=your_key_here
+# Set environment variables (main app uses xAI Grok)
+export XAI_API_KEY=your_key_here
+# optional RAG:
+# export OPENAI_API_KEY=your_key_here
 
 # Start with Docker Compose
 docker-compose up -d
@@ -64,7 +66,7 @@ docker build -t ai-smart-advisor .
 
 # Run container
 docker run -p 8501:8501 \
-  -e OPENAI_API_KEY=your_key_here \
+  -e XAI_API_KEY=your_key_here \
   -v $(pwd)/data:/app/data \
   ai-smart-advisor
 ```
@@ -87,7 +89,7 @@ docker run -p 8501:8501 \
 **Fly.io:**
 ```bash
 fly launch
-fly secrets set OPENAI_API_KEY=your_key
+fly secrets set XAI_API_KEY=your_key
 fly deploy
 ```
 
@@ -99,7 +101,8 @@ fly deploy
 2. Click "New Project" → "Deploy from GitHub"
 3. Select your repository
 4. Add environment variables:
-   - `OPENAI_API_KEY`
+   - `XAI_API_KEY` (main app)
+   - `OPENAI_API_KEY` (optional RAG)
    - `PINECONE_API_KEY` (optional)
 5. Railway auto-detects and deploys!
 
@@ -129,7 +132,7 @@ Configuration file: `render.yaml` (already included)
 3. Create app: `heroku create your-app-name`
 4. Set config vars:
    ```bash
-   heroku config:set OPENAI_API_KEY=your_key
+   heroku config:set XAI_API_KEY=your_key
    ```
 5. Deploy: `git push heroku main`
 
@@ -139,10 +142,12 @@ Configuration file: `Procfile` (already included)
 
 All deployment methods require these environment variables:
 
-### Required
-- `OPENAI_API_KEY` - Your OpenAI API key
+### Required (JSOM Smart Advisor)
+- `XAI_API_KEY` - xAI API key for Grok (recommendations)
 
 ### Optional
+- `XAI_MODEL` - e.g. `grok-3-mini`
+- `OPENAI_API_KEY` - Only for optional RAG / `initialize_db.py` with OpenAI embeddings
 - `PINECONE_API_KEY` - If using Pinecone
 - `PINECONE_ENVIRONMENT` - Pinecone environment
 - `VECTOR_DB_TYPE` - `CHROMA` (default) or `PINECONE`

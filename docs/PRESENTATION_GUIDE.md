@@ -9,13 +9,12 @@ This guide helps you explain the AI Smart Advisor project to stakeholders, team 
 ## 🎯 Project Overview (30 seconds)
 
 **What it is:**
-A chatbot that helps students with:
-1. **Degree Planning** - Maps out courses based on degree requirements
-2. **Career Guidance** - Provides career path and skill information
-3. **Skills Analysis** - Identifies gaps between student skills and job requirements
+**JSOM Smart Advisor** — one Streamlit page where students pick a **JSOM program**, a **career path**, and upload a **resume**. The app **scrapes** that program’s official page, compares **roadmap-style** skill topics to the resume, and uses **Grok (xAI)** for course recommendations with strict **no-invented-courses** rules.
 
-**Key Achievement:**
-All features work **without requiring an API key** (except AI Chat). Degree Plan, Career, and Skills Analysis tabs are fully functional and free.
+**Key achievement:**
+Grounded recommendations from **live** degree pages plus honest **NO_MATCH** when fit is weak. **`XAI_API_KEY`** is required for the LLM step; scraping and roadmap JSON do not use OpenAI.
+
+**Also in the repo:** standalone degree planner, career mentor, and skills modules, plus an **optional** RAG path (OpenAI + Chroma) — separate from the main demo.
 
 ---
 
@@ -67,64 +66,37 @@ All features work **without requiring an API key** (except AI Chat). Degree Plan
 
 ### Orchestration: **LangChain**
 
-**Why:** 
-- Industry-standard for RAG applications
-- Excellent documentation
-- Works seamlessly with Streamlit
-- Modern LCEL (LangChain Expression Language) approach
+**Why:** Mature ecosystem, works on Streamlit Cloud, supports both **xAI** (`langchain-xai`) and optional **OpenAI** RAG.
 
-**What it does:**
-- Retrieves relevant information from JSOM catalog
-- Prevents AI hallucinations by grounding responses in source data
-- Manages the entire RAG pipeline
+**What it does (main app):** **`ChatXAI`** calls Grok with a prompt built from **scraped program HTML**, resume-derived skills, career path, and extracted **course-code lines** when available.
+
+**Optional path:** LCEL RAG in `rag_engine.py` with Chroma + OpenAI embeddings — not required for the live-scrape advisor.
 
 ---
 
-### Vector Storage: **ChromaDB**
+### Vector Storage: **ChromaDB** (optional)
 
-**Why:**
-- **Free** - No API costs
-- **Simple** - Easy deployment on Streamlit Cloud
-- **Effective** - Handles our scale perfectly
+**When:** Only if you run **`scripts/initialize_db.py`** after **`scrape_catalog.py`** for the RAG/chat pipeline.
 
-**What it does:**
-- Stores JSOM catalog as searchable embeddings
-- Enables semantic search (finds relevant content by meaning)
-- Persists data between sessions
+**Why:** Free, local persistence, Pinecone optional in config.
 
-**Alternative:** Pinecone supported but not needed (code ready if scaling required)
+The **JSOM Smart Advisor** page does **not** need Chroma for its primary flow.
 
 ---
 
 ### Frontend: **Streamlit**
 
-**Why:**
-- **Free hosting** on Streamlit Cloud
-- **Python-native** - Seamless integration
-- **Rapid development** - Built UI in hours, not weeks
-- **Accessible** - ADA-compliant by design
+**Why:** Free Cloud hosting, Python-native, fast to iterate.
 
-**What it provides:**
-- Interactive chat interface
-- Data visualization (tables, metrics)
-- Multi-tab navigation
-- User profile management
+**What it provides:** Single-page flow (program + career + resume + results), custom CSS/branding, accessible defaults where applicable.
 
 ---
 
-### Web Scraping: **BeautifulSoup**
+### Web Scraping: **BeautifulSoup** + **requests**
 
-**Why:**
-- Simple and effective for HTML parsing
-- Sufficient for JSOM catalog structure
-- Lightweight dependencies
+**Why:** Straightforward for static degree pages.
 
-**What it does:**
-- Extracts degree programs from JSOM website
-- Parses course information and prerequisites
-- Structures data as JSON
-
-**Note:** Currently uses pre-loaded data; scraper ready for updates
+**What it does:** **Per-session** scrape of the URL for the selected program; **`scrape_catalog.py`** can refresh **`catalog.json`** for all URLs in **`jsom_programs.py`** for the optional vector pipeline.
 
 ---
 
@@ -164,35 +136,28 @@ All features work **without requiring an API key** (except AI Chat). Degree Plan
 
 ## 💡 Technical Highlights (1 minute)
 
-### Modern RAG Implementation
-- Uses LangChain Expression Language (LCEL)
-- No deprecated code
-- Efficient retrieval pipeline
+### Grounded LLM output
+- Context from **one official program URL** per run; **STATUS: OK / NO_MATCH** contract
+- Regex-backed **course list** hints when the model under-lists concrete courses
 
-### Smart Intent Classification
-- Automatically routes queries to correct module
-- Keyword-based scoring system
-- Handles ambiguous queries
+### Clear separation of concerns
+- **Heuristic** resume skills; **GitHub roadmap JSON** for gap topics; **Grok** only for synthesis
 
-### Prerequisite Resolution
-- Topological sorting algorithm
-- Ensures valid course sequences
-- Handles complex dependencies
+### Optional RAG stack
+- LCEL + Chroma + OpenAI still available for catalog Q&A experiments
 
 ---
 
 ## 📊 Metrics & Performance
 
 **Response Time:**
-- Degree Plan: < 1 second
-- Career Info: < 1 second
-- Skills Analysis: < 1 second
-- JSOM Smart Advisor (Grok API): ~3–15 seconds (depends on xAI latency and scrape time)
+- Heuristic skills + roadmap gap steps: typically sub-second (network dependent for GitHub JSON)
+- JSOM Smart Advisor (scrape + Grok): ~3–15 seconds (xAI latency + page fetch)
+- Optional RAG chat: embedding + retrieval + OpenAI — similar order of seconds
 
 **Accuracy:**
-- Degree planning: 100% (based on official catalog)
-- Career data: Industry-standard information
-- Skills analysis: Quantitative, data-driven
+- **JSOM Smart Advisor:** Course suggestions are constrained to scraped program text + STATUS rules; regex can list extracted codes when the model is thin.
+- **Planner / career modules (when used):** Catalog JSON and structured career data drive deterministic outputs.
 
 **Scalability:**
 - Handles multiple concurrent users
@@ -230,7 +195,7 @@ All features work **without requiring an API key** (except AI Chat). Degree Plan
 ## ❓ Common Questions & Answers
 
 ### Q: Why not use LlamaIndex?
-**A:** LangChain has better Streamlit Cloud compatibility and more mature RAG tooling. LlamaIndex is in requirements for future flexibility.
+**A:** LangChain covers our needs (xAI + optional OpenAI RAG). LlamaIndex is not required for the current paths.
 
 ### Q: Why ChromaDB instead of Pinecone?
 **A:** ChromaDB is free, works perfectly on Streamlit Cloud, and handles our scale. Pinecone is supported if we need to scale later.
@@ -255,10 +220,10 @@ All features work **without requiring an API key** (except AI Chat). Degree Plan
 ## 📝 Talking Points Summary
 
 **Opening:**
-"Today I'll present the AI Smart Advisor - a chatbot that helps students with degree planning, career guidance, and skills analysis. It's built using modern AI technologies and is fully deployed and accessible."
+"Today I'll present the JSOM Smart Advisor — it matches a student’s program, career path, and resume to live degree-page content and uses Grok for recommendations, with strict rules so we don’t invent courses."
 
 **Key Message:**
-"All requirements are met using industry-standard tools: LangChain for RAG, ChromaDB for vector storage, Streamlit for the frontend, and BeautifulSoup for data extraction. The system enforces data integrity, is ADA-compliant, and outputs structured data for future AI compatibility."
+"We use LangChain with xAI on Streamlit, live BeautifulSoup scraping, and roadmap JSON for skill gaps; Chroma and OpenAI are optional for a separate RAG demo path."
 
 **Closing:**
 "The application is live, functional, and demonstrates all required capabilities. It's built with scalability and maintainability in mind, following best practices for production systems."
@@ -267,14 +232,13 @@ All features work **without requiring an API key** (except AI Chat). Degree Plan
 
 ## 🎯 Key Selling Points
 
-1. ✅ **All Requirements Met** - Every requirement implemented
-2. ✅ **Modern Tech Stack** - Industry-standard tools
-3. ✅ **Production Ready** - Deployed and accessible
-4. ✅ **Free to Use** - No hosting costs
-5. ✅ **Accessible** - ADA compliant
-6. ✅ **Future-Proof** - Structured data, scalable architecture
-7. ✅ **Well-Documented** - Comprehensive technical docs
-8. ✅ **Source of Truth** - Prevents hallucinations
+1. ✅ **Grounded recommendations** - Official program pages + NO_MATCH when needed
+2. ✅ **Modern stack** - Streamlit, LangChain, xAI Grok, optional RAG
+3. ✅ **Deployable** - Streamlit Cloud with `XAI_API_KEY`
+4. ✅ **Free hosting tier** - Streamlit Cloud; xAI usage per your plan
+5. ✅ **Accessible UI** - Streamlit + sensible defaults
+6. ✅ **Documented** - Technical docs aligned with `app.py`
+7. ✅ **Extensible** - Catalog JSON + Chroma path for RAG experiments
 
 ---
 

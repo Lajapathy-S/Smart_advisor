@@ -1,172 +1,93 @@
-# Part A: The AI Smart Advisor (Chatbot Interface)
+# Part A: AI Smart Advisor (JSOM)
 
-A functional prototype of a chatbot that acts as a personalized concierge for students, providing degree planning, career mentorship, and skills gap analysis.
+**Primary product:** **JSOM Smart Advisor** — a single-page **Streamlit** app that matches a student’s **program**, **career path**, and **resume** to **live-scraped** JSOM degree pages and **Grok (xAI)** recommendations, with **roadmap-style** skill-gap topics and strict **no-hallucination** rules (`STATUS: OK` / `STATUS: NO_MATCH`).
 
-## Features
+**Also in the repo:** degree planning, career mentorship, and skills modules under `src/`, plus an **optional** RAG/chat stack (Chroma + OpenAI embeddings) for catalog-grounded Q&A — not required to run the main advisor.
 
-### 1. Degree Planning
-- Logic-based paths that help students map out courses based on their specific degree requirements
-- Uses official JSOM catalog as the "Source of Truth" to prevent hallucinations
-- Structured course recommendations using JSON-LD/Schema format
+## Features (JSOM Smart Advisor — `src/frontend/app.py`)
 
-### 2. Career Mentorship
-- Qualitative advice on career trajectories
-- Information on technical and soft skills required for various job roles
-- Industry-standard career path guidance
+- **Program selection** — Dropdown maps to official JSOM URLs (`src/data_processing/jsom_programs.py`, with inline fallback in `app.py` for some deploy environments).
+- **Live catalog context** — `requests` + **BeautifulSoup** scrape the selected program page; optional regex extraction of **course code + title** lines to anchor the LLM.
+- **Resume** — PDF/TXT; **heuristic** skill extraction (no LLM for parsing).
+- **Skill gaps** — Topics from public **developer-roadmap** JSON on GitHub, compared to resume text.
+- **Recommendations** — **LangChain** **`langchain_xai.ChatXAI`** (Grok); responses must follow catalog alignment rules; optional fallback merge from extracted catalog lines.
 
-### 3. Skills Gap Analysis
-- Compares student's current profile against industry-standard requirements
-- Identifies missing competencies for specific job titles
-- Provides actionable recommendations
+## Legacy / optional modules
 
-## Technology Stack
+| Area | Location | Role |
+|------|----------|------|
+| Degree planning | `src/degree_planning/` | Prerequisite-aware plans from `catalog.json` |
+| Career mentorship | `src/career_mentorship/` | Structured career JSON |
+| Skills analysis | `src/skills_analysis/` | Gap analysis vs job DB |
+| RAG chat | `src/core/rag_engine.py`, `chatbot.py` | Chroma + OpenAI if enabled |
 
-- **Frontend**: **Streamlit** - Modern, interactive web interface with ADA compliance
-- **Orchestration**: LangChain/LlamaIndex (for RAG implementation)
-- **Vector Storage**: Pinecone or ChromaDB (to index JSOM web content)
-- **Analysis**: BeautifulSoup/Scrapy for web audits and Google Search Console for indexing data
+## Technology stack
 
-## Project Structure
+- **Frontend:** Streamlit (`src/frontend/app.py`)
+- **LLM (main app):** xAI Grok via **`langchain-xai`**
+- **Optional RAG:** LangChain + **OpenAI** embeddings + Chroma (or Pinecone)
+- **Scraping:** BeautifulSoup + requests (`scraper.py`, in-app fetch)
+
+## Project structure
 
 ```
 PartA_AI_Smart_Advisor/
 ├── src/
-│   ├── core/              # Core chatbot logic and RAG implementation
-│   ├── degree_planning/   # Degree planning module
-│   ├── career_mentorship/ # Career mentorship module
-│   ├── skills_analysis/   # Skills gap analysis module
-│   ├── data_processing/   # Web scraping and data processing
-│   └── frontend/          # Streamlit frontend application
-├── data/
-│   └── jsom_catalog/      # JSOM catalog data (source of truth)
-├── config/                # Configuration files
-├── tests/                 # Unit and integration tests
-└── docs/                  # Documentation
-
+│   ├── core/              # Optional RAG + chatbot
+│   ├── degree_planning/
+│   ├── career_mentorship/
+│   ├── skills_analysis/
+│   ├── data_processing/ # scraper, jsom_programs (PROGRAM_URLS)
+│   └── frontend/        # JSOM Smart Advisor (main entry)
+├── data/jsom_catalog/   # catalog.json (optional RAG / planner)
+├── scripts/             # scrape_catalog.py, initialize_db.py
+├── config/
+├── tests/
+└── docs/
 ```
 
-## Setup Instructions
+## Setup
 
-### Prerequisites
-- Python 3.9 or higher
-- pip package manager
+1. `cd PartA_AI_Smart_Advisor`
+2. `python -m venv venv` and activate it
+3. `pip install -r requirements.txt`
+4. Copy `config/.env.example` → `config/.env` and set **`XAI_API_KEY`** (and optional **`XAI_MODEL`**).
+5. Run: `python run.py` or `streamlit run src/frontend/app.py`
 
-### Installation
+See **[QUICKSTART.md](QUICKSTART.md)** and **[SETUP.md](SETUP.md)** for detail. Optional: `python scripts/scrape_catalog.py` then `python scripts/initialize_db.py` for the RAG path (**`OPENAI_API_KEY`** required for embeddings in that path).
 
-1. Clone or navigate to this directory:
-```bash
-cd PartA_AI_Smart_Advisor
-```
+## Configuration (environment)
 
-2. Create a virtual environment:
-```bash
-python -m venv venv
-```
+| Variable | When |
+|----------|------|
+| **`XAI_API_KEY`** | **Required** for Grok recommendations in the main app |
+| **`XAI_MODEL`** | Optional (e.g. `grok-3-mini`) |
+| **`OPENAI_API_KEY`** | Only if using `initialize_db.py` / RAG with OpenAI embeddings |
+| **`PINECONE_*`**, **`CHROMA_PERSIST_DIR`** | Optional RAG / vector DB |
 
-3. Activate the virtual environment:
-- Windows:
-```bash
-venv\Scripts\activate
-```
-- Linux/Mac:
-```bash
-source venv/bin/activate
-```
+## Data sources
 
-4. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-5. Set up environment variables:
-```bash
-cp config/.env.example config/.env
-```
-Edit `config/.env` with your API keys and configuration.
-
-6. Run the Streamlit application:
-```bash
-# Option 1: Using the run script
-python run.py
-
-# Option 2: Direct Streamlit command
-streamlit run src/frontend/app.py
-```
-
-📖 **See [QUICKSTART.md](QUICKSTART.md) for detailed Streamlit usage guide**
-
-## Configuration
-
-### Environment Variables
-- `OPENAI_API_KEY`: Your OpenAI API key (for LLM)
-- `PINECONE_API_KEY`: Your Pinecone API key (if using Pinecone)
-- `PINECONE_ENVIRONMENT`: Pinecone environment
-- `CHROMA_PERSIST_DIR`: Directory for ChromaDB persistence (if using ChromaDB)
-- `JSOM_CATALOG_URL`: URL to the official JSOM catalog
-
-## Data Sources
-
-- **JSOM Catalog**: Official degree requirements and course information
-- **Industry Standards**: Job requirements and skill mappings
-- **Career Data**: Career trajectory information
+- **Live:** Selected JSOM program URLs from `PROGRAM_URLS`
+- **Bulk JSON:** `scripts/scrape_catalog.py` → `data/jsom_catalog/catalog.json`
+- **Roadmap topics:** GitHub `kamranahmedse/developer-roadmap` JSON (HTTP)
 
 ## Accessibility
 
-The web interface adheres to ADA compliance standards:
-- Semantic HTML structure
-- ARIA labels and roles
-- Keyboard navigation support
-- Screen reader compatibility
-- Color contrast compliance
-
-## Future Proofing
-
-Content recommendations are structured using:
-- JSON-LD format for semantic markup
-- Schema.org vocabulary for structured data
-- Easy ingestion by future AI models
+Streamlit + custom CSS; aim for keyboard use and readable contrast. See `docs/` for presentation notes.
 
 ## Development
 
-### Running Tests
 ```bash
 pytest tests/
-```
-
-### Code Style
-This project follows PEP 8 style guidelines. Use black for formatting:
-```bash
-black src/
+black src/   # optional formatting
 ```
 
 ## Deployment
 
-The application can be deployed using multiple methods:
+**Streamlit Cloud:** set secrets **`XAI_API_KEY`** (and optional **`XAI_MODEL`**). Main file: `src/frontend/app.py`.
 
-### 🚀 Quick Deploy Options
+Guides: [STREAMLIT_CLOUD_DEPLOY.md](STREAMLIT_CLOUD_DEPLOY.md), [streamlit-cloud.md](streamlit-cloud.md), [README_DEPLOYMENT.md](README_DEPLOYMENT.md), [DEPLOYMENT.md](DEPLOYMENT.md).
 
-1. **Streamlit Cloud** (Recommended - Free & Easy)
-   - See [streamlit-cloud.md](streamlit-cloud.md) for detailed guide
-   - Push to GitHub → Deploy on Streamlit Cloud → Done!
+## License / contributors
 
-2. **Cloudflare Tunnel** (Expose Local App)
-   - See [cloudflare-tunnel.md](cloudflare-tunnel.md) for setup
-   - Perfect for sharing local development
-
-3. **Docker** (Containerized)
-   - Use `Dockerfile` and `docker-compose.yml`
-   - Deploy to any cloud platform
-
-4. **Other Platforms**
-   - Railway, Render, Heroku supported
-   - See [DEPLOYMENT.md](DEPLOYMENT.md) for all options
-
-📖 **Full deployment guide**: [README_DEPLOYMENT.md](README_DEPLOYMENT.md)
-
-## License
-
-[Add your license here]
-
-## Contributors
-
-[Add contributor information here]
+Add as needed.
