@@ -1036,11 +1036,6 @@ PROGRAM CONTEXT:
 
                 st.subheader("Skill gaps for your target role")
                 st.caption(gap_source_note)
-                if roadmap_slug:
-                    st.markdown(
-                        f"Explore the full roadmap interactively: **[roadmap.sh](https://roadmap.sh/)** "
-                        f"— topic list loaded from community roadmap data (`{roadmap_slug}`)."
-                    )
                 if missing_skills:
                     st.write(", ".join(missing_skills))
                 else:
