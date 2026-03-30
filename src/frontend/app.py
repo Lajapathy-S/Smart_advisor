@@ -961,7 +961,7 @@ def main():
     with st.container():
 
         pursuing = st.selectbox(
-            "What are you pursuing?",
+            "What program are you pursuing?",
             options=["Select your program"] + PURSUIT_OPTIONS,
             index=0,
             help="Choose your exact JSOM degree/program.",
