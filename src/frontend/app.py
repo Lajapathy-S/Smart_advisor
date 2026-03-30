@@ -73,11 +73,13 @@ st.markdown(
 <style>
     .corner-logo {
         position: fixed;
-        top: 0.75rem;
+        top: 3.5rem;
         left: 0.75rem;
         width: 120px;
         z-index: 999;
         border-radius: 999px;
+        background: #ffffff;
+        padding: 4px;
         box-shadow: 0 4px 10px rgba(15, 23, 42, 0.15);
     }
     .title {
