@@ -74,8 +74,8 @@ st.markdown(
     .corner-logo {
         position: fixed;
         top: 0.75rem;
-        right: 0.75rem;
-        width: 96px;
+        left: 0.75rem;
+        width: 120px;
         z-index: 999;
         border-radius: 999px;
         box-shadow: 0 4px 10px rgba(15, 23, 42, 0.15);
