@@ -148,6 +148,47 @@ st.markdown(
         border-left: 6px solid var(--advisor-orange);
         padding-left: 14px;
     }
+    /* Green accents on inputs (select/upload) */
+    div[data-testid="stSelectbox"] div[role="combobox"],
+    div[data-testid="stFileUploader"] section {
+        border-radius: 14px !important;
+    }
+    div[data-testid="stSelectbox"] div[role="combobox"]{
+        border: 1px solid rgba(15, 90, 51, 0.25);
+        box-shadow: 0 1px 0 rgba(15, 90, 51, 0.06);
+    }
+    div[data-testid="stSelectbox"] div[role="combobox"]:focus-within{
+        border-color: rgba(15, 90, 51, 0.65);
+        box-shadow: 0 0 0 3px rgba(15, 90, 51, 0.16);
+    }
+    div[data-testid="stFileUploader"] section{
+        border: 1px dashed rgba(15, 90, 51, 0.38);
+        background: rgba(15, 90, 51, 0.03);
+    }
+    /* Divider */
+    hr{
+        height: 2px;
+        border: 0;
+        background: linear-gradient(90deg, rgba(15, 90, 51, 0.9), rgba(240, 138, 28, 0.85));
+        border-radius: 999px;
+        opacity: 0.9;
+    }
+    /* Header badge */
+    .advisor-badge{
+        position: fixed;
+        top: 0.85rem;
+        right: 1.25rem;
+        z-index: 999;
+        background: rgba(15, 90, 51, 0.95);
+        color: #ffffff;
+        border: 1px solid rgba(240, 138, 28, 0.55);
+        box-shadow: 0 10px 24px rgba(15, 90, 51, 0.18);
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 0.85rem;
+        letter-spacing: 0.01em;
+    }
     /* Main recommendation card */
     .answer-card{
         background: linear-gradient(180deg, var(--advisor-green) 0%, var(--advisor-green-2) 100%);
@@ -172,6 +213,11 @@ if logo_path.exists():
         f'<img src="data:image/png;base64,{logo_b64}" class="corner-logo" alt="Comet Smart Advisor logo" />',
         unsafe_allow_html=True,
     )
+
+st.markdown(
+    "<div class='advisor-badge'>AI Advisor Active</div>",
+    unsafe_allow_html=True,
+)
 
 
 PURSUIT_OPTIONS = [
