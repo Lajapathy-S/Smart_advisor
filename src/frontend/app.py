@@ -1197,9 +1197,6 @@ PROGRAM CONTEXT:
                 else:
                     st.write("No major gaps detected against the selected topic list for this role.")
 
-                if matched_skills:
-                    st.caption("Topics/skills already reflected in your resume: " + ", ".join(matched_skills))
-
                 st.subheader("Recommended JSOM Subjects for Your Goal")
                 if no_match:
                     st.info(
