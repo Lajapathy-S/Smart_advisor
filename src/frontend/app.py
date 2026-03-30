@@ -4,6 +4,7 @@ JSOM Smart Advisor - Resume-based course recommendation.
 """
 
 import base64
+import html
 import json
 import os
 import re
@@ -71,6 +72,20 @@ st.set_page_config(
 st.markdown(
     """
 <style>
+    :root{
+        --advisor-green: #0f5a33;
+        --advisor-green-2: #0b3f27;
+        --advisor-orange: #f08a1c;
+        --advisor-orange-2: #d97706;
+        --advisor-bg: #f6f8fb;
+        --advisor-text: #0f172a;
+        --advisor-muted: #6b7280;
+    }
+    /* Overall page tone */
+    .stApp {
+        background: var(--advisor-bg);
+        color: var(--advisor-text);
+    }
     .corner-logo {
         position: fixed;
         top: 3.5rem;
@@ -81,18 +96,19 @@ st.markdown(
         background: #ffffff;
         padding: 4px;
         box-shadow: 0 4px 10px rgba(15, 23, 42, 0.15);
+        border: 2px solid rgba(15, 90, 51, 0.25);
     }
     .title {
         font-size: 3rem;
         font-weight: 800;
         text-align: center;
         margin-bottom: 0.25rem;
-        color: #0f172a;
+        color: var(--advisor-green);
     }
     .subtitle {
         text-align: center;
         font-size: 1rem;
-        color: #4b5563;
+        color: var(--advisor-muted);
         margin-bottom: 2rem;
     }
     .sr-only {
@@ -111,6 +127,38 @@ st.markdown(
         border-radius: 999px;
         padding: 0.6rem 1.5rem;
         font-weight: 600;
+        background: var(--advisor-orange);
+        color: white;
+        border: 1px solid rgba(0,0,0,0.08);
+    }
+    .stButton>button:hover {
+        background: var(--advisor-orange-2);
+        color: white;
+    }
+    /* Headings / section labels */
+    .stSubheader {
+        color: var(--advisor-green);
+        font-weight: 800;
+    }
+    /* Alerts (st.info / st.warning / st.error) */
+    .stAlert {
+        border-radius: 14px !important;
+    }
+    .stAlert > div {
+        border-left: 6px solid var(--advisor-orange);
+        padding-left: 14px;
+    }
+    /* Main recommendation card */
+    .answer-card{
+        background: linear-gradient(180deg, var(--advisor-green) 0%, var(--advisor-green-2) 100%);
+        color: #ffffff;
+        border-radius: 18px;
+        padding: 16px 18px;
+        box-shadow: 0 10px 24px rgba(15, 90, 51, 0.22);
+        border: 1px solid rgba(255,255,255,0.12);
+        line-height: 1.45;
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
 </style>
 """,
@@ -1203,7 +1251,11 @@ PROGRAM CONTEXT:
                         "No course list is suggested for this program + career path combination "
                         "(or catalog data wasn’t enough). Read the note below."
                     )
-                st.markdown(answer)
+                answer_html = html.escape(answer).replace("\n", "<br/>")
+                st.markdown(
+                    f"<div class='answer-card'>{answer_html}</div>",
+                    unsafe_allow_html=True,
+                )
 
     st.markdown("---")
     st.markdown(
