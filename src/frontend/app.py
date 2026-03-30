@@ -901,6 +901,48 @@ def parse_llm_recommendation(raw: str) -> tuple[str, bool]:
     return text, False
 
 
+def count_course_lines(text: str) -> int:
+    """Count lines that look like concrete course entries (e.g., BUAN 6398 ...)."""
+    if not text:
+        return 0
+    course_line_re = re.compile(r"^\s*(?:[-*•]|\d+\.)?\s*[A-Z]{2,5}\s\d{4}\b")
+    return sum(1 for line in text.splitlines() if course_line_re.search(line))
+
+
+def build_fallback_course_list_from_catalog(
+    course_catalog: str, program_name: str, target_role: str, max_items: int = 10
+) -> str:
+    """
+    Build a deterministic recommendation block from scraped catalog lines when
+    the model returns too few concrete courses.
+    """
+    lines = [ln.strip() for ln in (course_catalog or "").splitlines() if ln.strip()]
+    cleaned: list[str] = []
+    seen = set()
+    for ln in lines:
+        # expected format: "- BUAN 6398 Prescriptive Analytics (MS Business Analytics)"
+        item = ln.lstrip("-").strip()
+        # remove trailing "(Program)" note for cleaner display
+        item = re.sub(r"\s+\([^)]*\)\s*$", "", item).strip()
+        if item.lower() in seen:
+            continue
+        seen.add(item.lower())
+        cleaned.append(item)
+
+    if not cleaned:
+        return ""
+
+    selected = cleaned[:max_items]
+    bullet_list = "\n".join(f"- {item}" for item in selected)
+    return (
+        f"Using the official JSOM catalog text for **{program_name}**, here are concrete courses "
+        f"that align with **{target_role}**:\n\n"
+        f"{bullet_list}\n\n"
+        "These are extracted from the selected program page. You can prioritize foundations first "
+        "(statistics, data management, analytics methods) and then advanced analytics/prescriptive topics."
+    )
+
+
 def main():
     llm = get_llm()
 
@@ -1016,6 +1058,16 @@ PROGRAM CONTEXT:
                                 answer, no_match = parse_llm_recommendation(
                                     raw_answer
                                 )
+                            # Guardrail: if model returns too few concrete course lines,
+                            # enrich with deterministic catalog-derived list.
+                            if not no_match and count_course_lines(answer) < 4:
+                                fallback = build_fallback_course_list_from_catalog(
+                                    course_catalog,
+                                    program_key,
+                                    target_role.strip(),
+                                )
+                                if fallback:
+                                    answer = fallback
                         except Exception as e:
                             answer = (
                                 "I encountered an error while generating recommendations. "
