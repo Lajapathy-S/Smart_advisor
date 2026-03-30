@@ -3,6 +3,7 @@ Streamlit Frontend Application
 JSOM Smart Advisor - Resume-based course recommendation.
 """
 
+import base64
 import json
 import os
 import re
@@ -70,6 +71,15 @@ st.set_page_config(
 st.markdown(
     """
 <style>
+    .corner-logo {
+        position: fixed;
+        top: 0.75rem;
+        right: 0.75rem;
+        width: 96px;
+        z-index: 999;
+        border-radius: 999px;
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.15);
+    }
     .title {
         font-size: 3rem;
         font-weight: 800;
@@ -104,6 +114,14 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+
+logo_path = project_root / "assets" / "comet-smart-advisor.png"
+if logo_path.exists():
+    logo_b64 = base64.b64encode(logo_path.read_bytes()).decode("utf-8")
+    st.markdown(
+        f'<img src="data:image/png;base64,{logo_b64}" class="corner-logo" alt="Comet Smart Advisor logo" />',
+        unsafe_allow_html=True,
+    )
 
 
 PURSUIT_OPTIONS = [
