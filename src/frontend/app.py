@@ -499,6 +499,7 @@ def extract_skills_from_resume(text: str) -> list[str]:
     # Known technical/soft skills to look for
     known_skills = [
         "python",
+        "pandas",
         "sql",
         "excel",
         "tableau",
@@ -1052,8 +1053,8 @@ IMPORTANT – Scope (when STATUS: OK):
 IMPORTANT – Output format (when STATUS: OK) — follow exactly:
 - Do NOT write generic “tracks,” “elective categories,” or high-level summaries (bad examples to avoid:
   “Electives in Data Science,” “Core courses for foundation in tools,” “Flex Program” bullets without course codes).
-- You MUST list **concrete courses** as separate lines. Each line MUST look like:
-  **BUAN 6398 Prescriptive Analytics** (subject code + short title as in the catalog text).
+- You MUST list concrete courses as separate lines. Each line MUST look like:
+  BUAN 6398 Prescriptive Analytics (subject code + short title as in the catalog text).
 - When the EXTRACTED COURSE CATALOG block below is non-empty, **prioritize those lines** and include the same codes in your answer.
 - When codes appear anywhere in PROGRAM CONTEXT, copy them — do not paraphrase the degree into tracks.
 - Recommend **5–10 specific courses** when the context lists that many; otherwise as many as are clearly named with codes in the text.
@@ -1084,14 +1085,21 @@ def parse_llm_recommendation(raw: str) -> tuple[str, bool]:
 
     first_line, _, rest = text.partition("\n")
     first = first_line.strip()
+    def _strip_course_bold_markers(s: str) -> str:
+        # LLMs sometimes return Markdown bold around course lines (e.g., **BUAN 6312 ...**).
+        # Keep plain text output for cleaner UI rendering.
+        return re.sub(r"\*\*\s*([A-Z]{2,5}\s*\d{4}[^*]*)\s*\*\*", r"\1", s)
+
     if first == "STATUS: NO_MATCH":
         body = rest.strip()
+        body = _strip_course_bold_markers(body)
         return (body if body else DEFAULT_NO_COURSE_MESSAGE), True
     if first == "STATUS: OK":
-        return (rest.strip() if rest.strip() else text), False
+        cleaned = _strip_course_bold_markers(rest.strip() if rest.strip() else text)
+        return cleaned, False
 
     # Model omitted status line — show full response
-    return text, False
+    return _strip_course_bold_markers(text), False
 
 
 def count_course_lines(text: str) -> int:
