@@ -5,6 +5,7 @@ JSOM Smart Advisor - Resume-based course recommendation.
 
 import base64
 import html
+import io
 import json
 import os
 import re
@@ -73,11 +74,13 @@ st.markdown(
     """
 <style>
     :root{
-        --advisor-green: #0f5a33;
-        --advisor-green-2: #0b3f27;
-        --advisor-orange: #f08a1c;
-        --advisor-orange-2: #d97706;
-        --advisor-bg: #f6f8fb;
+        --advisor-green: #154734;
+        --advisor-green-2: #0d3528;
+        --advisor-orange: #E87500;
+        --advisor-orange-2: #c96600;
+        --advisor-muted-green: #3D6B58;
+        --advisor-peach: #FFF5EE;
+        --advisor-bg: #F8F9F9;
         --advisor-text: #0f172a;
         --advisor-muted: #6b7280;
     }
@@ -86,30 +89,136 @@ st.markdown(
         background: var(--advisor-bg);
         color: var(--advisor-text);
     }
+    /* UTD-style top bar */
+    .jsom-app-header {
+        width: 100vw;
+        position: relative;
+        left: 50%;
+        right: 50%;
+        margin-left: -50vw;
+        margin-right: -50vw;
+        box-sizing: border-box;
+        background: linear-gradient(90deg, var(--advisor-green) 0%, var(--advisor-green-2) 100%);
+        color: #ffffff;
+        padding: 14px 22px;
+        margin-bottom: 1rem;
+        box-shadow: 0 4px 18px rgba(15, 23, 42, 0.12);
+        z-index: 1001;
+    }
+    .jsom-app-header-inner {
+        max-width: 900px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+    .jsom-header-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+    }
+    .jsom-logo-tile {
+        flex-shrink: 0;
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        background: rgba(255,255,255,0.12);
+        border: 2px solid rgba(232, 117, 0, 0.55);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 0.72rem;
+        letter-spacing: 0.04em;
+        line-height: 1.1;
+        text-align: center;
+    }
+    .jsom-header-title {
+        font-size: 1.35rem;
+        font-weight: 800;
+        margin: 0;
+        line-height: 1.2;
+        color: #ffffff;
+    }
+    .jsom-header-sub {
+        font-size: 0.82rem;
+        opacity: 0.92;
+        margin: 2px 0 0 0;
+        line-height: 1.3;
+    }
+    .jsom-header-pill {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(255,255,255,0.14);
+        border: 1px solid rgba(232, 117, 0, 0.5);
+        padding: 8px 14px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 0.82rem;
+    }
+    .jsom-header-pill .jsom-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--advisor-orange);
+        box-shadow: 0 0 0 3px rgba(232, 117, 0, 0.25);
+    }
+    /* Welcome strip (green + orange accent) */
+    .jsom-welcome-banner {
+        position: relative;
+        background: #ffffff;
+        border-radius: 14px;
+        border: 1px solid rgba(61, 107, 88, 0.22);
+        margin: 0 0 1.25rem 0;
+        overflow: hidden;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+    }
+    .jsom-welcome-accent {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 6px;
+        background: linear-gradient(180deg, var(--advisor-green), var(--advisor-orange));
+    }
+    .jsom-welcome-inner {
+        padding: 14px 16px 14px 22px;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    .jsom-welcome-inner p {
+        margin: 0;
+        font-size: 0.95rem;
+        color: #374151;
+        line-height: 1.45;
+    }
+    .jsom-welcome-ai {
+        flex-shrink: 0;
+        background: var(--advisor-green);
+        color: #fff;
+        font-weight: 800;
+        font-size: 0.72rem;
+        padding: 5px 9px;
+        border-radius: 8px;
+        letter-spacing: 0.06em;
+    }
     .corner-logo {
         position: fixed;
-        top: 3.5rem;
+        top: 5.5rem;
         left: 0.75rem;
         width: 120px;
-        z-index: 999;
+        z-index: 998;
         border-radius: 999px;
         background: #ffffff;
         padding: 4px;
         box-shadow: 0 4px 10px rgba(15, 23, 42, 0.15);
-        border: 2px solid rgba(15, 90, 51, 0.25);
-    }
-    .title {
-        font-size: 3rem;
-        font-weight: 800;
-        text-align: center;
-        margin-bottom: 0.25rem;
-        color: var(--advisor-green);
-    }
-    .subtitle {
-        text-align: center;
-        font-size: 1rem;
-        color: var(--advisor-muted);
-        margin-bottom: 2rem;
+        border: 2px solid rgba(232, 117, 0, 0.45);
     }
     .sr-only {
         position: absolute;
@@ -122,18 +231,35 @@ st.markdown(
         white-space: nowrap;
         border-width: 0;
     }
-    .stButton>button {
+    /* Main: pill options (white + green border); sidebar: orange CTA */
+    section.main .stButton > button,
+    section[data-testid="stMain"] .stButton > button {
         width: 100%;
         border-radius: 999px;
         padding: 0.6rem 1.5rem;
         font-weight: 600;
-        background: var(--advisor-orange);
-        color: white;
-        border: 1px solid rgba(0,0,0,0.08);
+        background: #ffffff !important;
+        color: var(--advisor-green) !important;
+        border: 2px solid var(--advisor-muted-green) !important;
     }
-    .stButton>button:hover {
-        background: var(--advisor-orange-2);
-        color: white;
+    section.main .stButton > button:hover,
+    section[data-testid="stMain"] .stButton > button:hover {
+        background: var(--advisor-peach) !important;
+        border-color: var(--advisor-orange) !important;
+        color: var(--advisor-green) !important;
+    }
+    section[data-testid="stSidebar"] .stButton > button {
+        width: 100%;
+        border-radius: 999px;
+        padding: 0.6rem 1.5rem;
+        font-weight: 600;
+        background: var(--advisor-orange) !important;
+        color: #ffffff !important;
+        border: 2px solid rgba(232, 117, 0, 0.35) !important;
+    }
+    section[data-testid="stSidebar"] .stButton > button:hover {
+        background: var(--advisor-orange-2) !important;
+        color: #ffffff !important;
     }
     /* Headings / section labels */
     .stSubheader {
@@ -154,40 +280,24 @@ st.markdown(
         border-radius: 14px !important;
     }
     div[data-testid="stSelectbox"] div[role="combobox"]{
-        border: 1px solid rgba(15, 90, 51, 0.25);
-        box-shadow: 0 1px 0 rgba(15, 90, 51, 0.06);
+        border: 1px solid rgba(61, 107, 88, 0.35);
+        box-shadow: 0 1px 0 rgba(21, 71, 52, 0.06);
     }
     div[data-testid="stSelectbox"] div[role="combobox"]:focus-within{
-        border-color: rgba(15, 90, 51, 0.65);
-        box-shadow: 0 0 0 3px rgba(15, 90, 51, 0.16);
+        border-color: rgba(21, 71, 52, 0.55);
+        box-shadow: 0 0 0 3px rgba(61, 107, 88, 0.2);
     }
     div[data-testid="stFileUploader"] section{
-        border: 1px dashed rgba(15, 90, 51, 0.38);
-        background: rgba(15, 90, 51, 0.03);
+        border: 1px dashed rgba(61, 107, 88, 0.4);
+        background: rgba(21, 71, 52, 0.04);
     }
     /* Divider */
     hr{
         height: 2px;
         border: 0;
-        background: linear-gradient(90deg, rgba(15, 90, 51, 0.9), rgba(240, 138, 28, 0.85));
+        background: linear-gradient(90deg, rgba(21, 71, 52, 0.9), rgba(232, 117, 0, 0.85));
         border-radius: 999px;
         opacity: 0.9;
-    }
-    /* Header badge */
-    .advisor-badge{
-        position: fixed;
-        top: 0.85rem;
-        right: 1.25rem;
-        z-index: 999;
-        background: rgba(15, 90, 51, 0.95);
-        color: #ffffff;
-        border: 1px solid rgba(240, 138, 28, 0.55);
-        box-shadow: 0 10px 24px rgba(15, 90, 51, 0.18);
-        padding: 8px 12px;
-        border-radius: 999px;
-        font-weight: 700;
-        font-size: 0.85rem;
-        letter-spacing: 0.01em;
     }
     /* Main recommendation card */
     .answer-card{
@@ -195,11 +305,124 @@ st.markdown(
         color: #ffffff;
         border-radius: 18px;
         padding: 16px 18px;
-        box-shadow: 0 10px 24px rgba(15, 90, 51, 0.22);
+        box-shadow: 0 10px 24px rgba(21, 71, 52, 0.22);
         border: 1px solid rgba(255,255,255,0.12);
         line-height: 1.45;
         white-space: normal;
         overflow-wrap: anywhere;
+    }
+    /* Skill Metrics — roadmap alignment bar */
+    .skill-metric-wrap {
+        border: 1px solid rgba(61, 107, 88, 0.25);
+        border-radius: 14px;
+        padding: 12px 14px;
+        background: #ffffff;
+        margin: 0.5rem 0 1rem 0;
+    }
+    .skill-metric-label {
+        font-weight: 800;
+        font-size: 1.05rem;
+        margin-bottom: 6px;
+    }
+    .skill-metric-bar {
+        height: 12px;
+        border-radius: 999px;
+        background: #e5e7eb;
+        overflow: hidden;
+    }
+    .skill-metric-fill {
+        height: 100%;
+        border-radius: 999px;
+        transition: width 0.35s ease;
+    }
+    .skill-metric-caption {
+        font-size: 0.82rem;
+        color: #6b7280;
+        margin-top: 8px;
+        line-height: 1.35;
+    }
+    /* Semester flowchart (recommended courses) */
+    .semester-flow {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: flex-start;
+        justify-content: flex-start;
+        overflow-x: auto;
+        gap: 0;
+        padding: 12px 4px 20px 4px;
+        margin: 8px 0 16px 0;
+        -webkit-overflow-scrolling: touch;
+    }
+    .semester-col {
+        flex: 0 0 auto;
+        min-width: 132px;
+        max-width: 168px;
+    }
+    .semester-title {
+        font-weight: 800;
+        font-size: 0.78rem;
+        color: var(--advisor-green);
+        text-align: center;
+        margin-bottom: 8px;
+        padding: 4px 6px;
+        background: rgba(21, 71, 52, 0.08);
+        border-radius: 8px;
+        border: 1px solid rgba(61, 107, 88, 0.25);
+    }
+    .semester-arrow {
+        flex: 0 0 auto;
+        align-self: center;
+        padding: 0 6px;
+        font-size: 1.35rem;
+        color: var(--advisor-orange);
+        font-weight: 700;
+        user-select: none;
+    }
+    .course-box {
+        border: 2px solid var(--advisor-green);
+        border-radius: 10px;
+        padding: 8px 6px;
+        margin: 0 0 8px 0;
+        background: #ffffff;
+        font-size: 0.72rem;
+        line-height: 1.25;
+        text-align: center;
+        color: #0f172a;
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+    }
+    .course-box.empty {
+        border-style: dashed;
+        opacity: 0.55;
+        color: #6b7280;
+    }
+    /* Chatbot layout */
+    /* Chat bubbles (Streamlit) */
+    [data-testid="stChatMessage"] {
+        background: #ffffff !important;
+        border: 1px solid rgba(61, 107, 88, 0.32) !important;
+        border-radius: 16px !important;
+        padding: 6px 10px !important;
+        margin-bottom: 10px !important;
+        box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+    }
+    [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] {
+        border-radius: 12px;
+    }
+    .chat-shell {
+        max-width: 760px;
+        margin: 0 auto 1.25rem auto;
+        border: 1px solid rgba(61, 107, 88, 0.22);
+        border-radius: 16px;
+        padding: 12px 14px 16px 14px;
+        background: #ffffff;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    }
+    p.chat-option-hint {
+        font-size: 0.9rem;
+        color: #374151;
+        margin: 0.5rem 0 0.75rem 0;
+        font-weight: 600;
     }
 </style>
 """,
@@ -213,12 +436,6 @@ if logo_path.exists():
         f'<img src="data:image/png;base64,{logo_b64}" class="corner-logo" alt="Comet Smart Advisor logo" />',
         unsafe_allow_html=True,
     )
-
-st.markdown(
-    "<div class='advisor-badge'>AI Advisor Active</div>",
-    unsafe_allow_html=True,
-)
-
 
 PURSUIT_OPTIONS = [
     "MS Accounting",
@@ -914,6 +1131,79 @@ def compute_skill_gaps(
     )
     return matched_topics, missing_topics, slug, note
 
+
+def skill_metrics_alignment(
+    matched: list[str],
+    missing: list[str],
+    roadmap_slug: str | None,
+) -> dict[str, Any]:
+    """
+    Skill Metrics: how much the resume aligns with expected roadmap-style topics
+    (same topic lists used in Skill gaps). Returns percent 0–100 and RAG-style zone color.
+    """
+    m_count = len(matched or [])
+    miss_count = len(missing or [])
+    total = m_count + miss_count
+    if total == 0:
+        return {
+            "percent": None,
+            "color": "#6b7280",
+            "zone": "na",
+            "label": "No topics compared",
+            "source": "roadmap" if roadmap_slug else "baseline",
+        }
+    pct = int(round(100.0 * m_count / total))
+    if pct >= 55:
+        color, zone = "#16a34a", "high"
+    elif pct >= 30:
+        color, zone = "#ca8a04", "mid"
+    else:
+        color, zone = "#dc2626", "low"
+    return {
+        "percent": pct,
+        "color": color,
+        "zone": zone,
+        "label": f"{pct}% aligned",
+        "matched": m_count,
+        "missing": miss_count,
+        "source": "roadmap" if roadmap_slug else "baseline",
+    }
+
+
+def render_skill_metrics_block(metrics: dict[str, Any]) -> None:
+    """Streamlit + HTML: color-coded alignment bar (Skill Metrics)."""
+    st.subheader("Skill Metrics")
+    pct = metrics.get("percent")
+    color = metrics.get("color", "#6b7280")
+    src = metrics.get("source", "roadmap")
+    if pct is None:
+        st.markdown(
+            f"""
+<div class="skill-metric-wrap">
+  <div class="skill-metric-label" style="color:{html.escape(color)};">{html.escape(metrics.get("label", "—"))}</div>
+  <p class="skill-metric-caption">Run with a career path that loads a roadmap topic list to see a red / yellow / green alignment score.</p>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+        return
+    src_note = (
+        "Compared against the public developer-roadmap JSON for this role (same topic family as roadmap.sh)."
+        if src == "roadmap"
+        else "Compared against a small built-in skill baseline for this role (no roadmap JSON loaded)."
+    )
+    st.markdown(
+        f"""
+<div class="skill-metric-wrap">
+  <div class="skill-metric-label" style="color:{html.escape(color)};">{html.escape(metrics.get("label", ""))}</div>
+  <div class="skill-metric-bar"><div class="skill-metric-fill" style="width:{int(pct)}%;background:{html.escape(color)};"></div></div>
+  <p class="skill-metric-caption">{html.escape(src_note)} Green ≥55%, yellow 30–54%, red &lt;30% (of topics checked vs your resume).</p>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 def extract_course_catalog(programs_context: str) -> str:
     """
     Extract course code + title pairs from scraped program text.
@@ -1115,6 +1405,102 @@ def count_course_lines(text: str) -> int:
     return n
 
 
+def extract_course_lines_from_recommendation(text: str) -> list[str]:
+    """Pull lines that contain a subject code (e.g. BUAN 6398) from model or fallback output."""
+    if not (text or "").strip():
+        return []
+    course_token_re = re.compile(r"[A-Z]{2,5}\s\d{4}\b")
+    out: list[str] = []
+    seen: set[str] = set()
+    for line in text.splitlines():
+        norm = re.sub(r"[*_`#]+", "", line).strip()
+        if not norm or norm.upper().startswith("STATUS:"):
+            continue
+        if not course_token_re.search(norm):
+            continue
+        norm = re.sub(r"^[-*•]+\s*", "", norm).strip()
+        norm = re.sub(r"^\d+\.\s*", "", norm).strip()
+        key = norm.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(norm)
+    return out
+
+
+def semester_count_for_degree(program_key: str, pursuing_display: str) -> int:
+    """
+    Typical JSOM pacing: master's ~2 years (4 semesters), bachelor's ~4 years (8 semesters).
+    """
+    pk = (program_key or "").strip()
+    pd = (pursuing_display or "").lower()
+    if pk.startswith("BS ") or "bachelor" in pd:
+        return 8
+    return 4
+
+
+def distribute_courses_to_semesters(
+    courses: list[str], n_semesters: int
+) -> dict[int, list[str]]:
+    """Spread courses across semesters as evenly as possible (first semesters get extras)."""
+    n_semesters = max(1, int(n_semesters))
+    if not courses:
+        return {s: [] for s in range(1, n_semesters + 1)}
+    n = len(courses)
+    base, extra = divmod(n, n_semesters)
+    plan: dict[int, list[str]] = {}
+    idx = 0
+    for sem in range(1, n_semesters + 1):
+        take = base + (1 if sem <= extra else 0)
+        plan[sem] = courses[idx : idx + take]
+        idx += take
+    return plan
+
+
+def render_semester_plan_flowchart(
+    program_key: str,
+    pursuing_display: str,
+    answer_text: str,
+) -> None:
+    """
+    Flowchart: semester columns, square course boxes, arrows between semesters.
+    Only call when recommendations include at least one coded course line.
+    """
+    courses = extract_course_lines_from_recommendation(answer_text)
+    if not courses:
+        return
+    n_sem = semester_count_for_degree(program_key, pursuing_display)
+    plan = distribute_courses_to_semesters(courses, n_sem)
+    pace = "four-year (8 semesters)" if n_sem == 8 else "two-year (4 semesters)"
+
+    st.subheader("Illustrative semester plan")
+    st.caption(
+        f"Courses spread across **{n_sem} semesters** ({pace} typical). "
+        "Ordering is a planning aid only—not official prerequisites or term offerings. "
+        "Confirm with the JSOM catalog and your advisor."
+    )
+
+    parts: list[str] = ['<div class="semester-flow" role="group" aria-label="Semester course plan">']
+    for sem in range(1, n_sem + 1):
+        if sem > 1:
+            parts.append('<div class="semester-arrow" aria-hidden="true">&#8594;</div>')
+        parts.append('<div class="semester-col">')
+        parts.append(
+            f'<div class="semester-title">{html.escape(f"Semester {sem}")}</div>'
+        )
+        sem_courses = plan.get(sem, [])
+        if sem_courses:
+            for c in sem_courses:
+                parts.append(f'<div class="course-box">{html.escape(c)}</div>')
+        else:
+            parts.append(
+                '<div class="course-box empty">Electives / plan with advisor</div>'
+            )
+        parts.append("</div>")
+    parts.append("</div>")
+    st.markdown("".join(parts), unsafe_allow_html=True)
+
+
 def build_fallback_course_list_from_catalog(
     course_catalog: str, program_name: str, target_role: str, max_items: int = 10
 ) -> str:
@@ -1149,97 +1535,209 @@ def build_fallback_course_list_from_catalog(
     )
 
 
-def main():
-    llm = get_llm()
+def coursera_suggestions_for_target_role(target_role: str) -> list[tuple[str, str]]:
+    """
+    Curated Coursera professional certificates / specializations by career keyword.
+    Used only when JSOM returns no concrete course list (no_match). Links are public pages.
+    """
+    r = (target_role or "").lower().strip()
+    # (substring in role, display title, coursera URL)
+    catalog: list[tuple[str, str, str]] = [
+        (
+            "data analyst",
+            "Google Data Analytics Professional Certificate",
+            "https://www.coursera.org/professional-certificates/google-data-analytics",
+        ),
+        (
+            "bi analyst",
+            "Google Data Analytics Professional Certificate",
+            "https://www.coursera.org/professional-certificates/google-data-analytics",
+        ),
+        (
+            "data engineer",
+            "IBM Data Engineering Professional Certificate",
+            "https://www.coursera.org/professional-certificates/ibm-data-engineering",
+        ),
+        (
+            "machine learning",
+            "Machine Learning Specialization (Stanford / DeepLearning.AI)",
+            "https://www.coursera.org/specializations/machine-learning-introduction",
+        ),
+        (
+            "ai engineer",
+            "IBM AI Engineering Professional Certificate",
+            "https://www.coursera.org/professional-certificates/ibm-ai-engineering",
+        ),
+        (
+            "ai and data scientist",
+            "IBM Data Science Professional Certificate",
+            "https://www.coursera.org/professional-certificates/ibm-data-science",
+        ),
+        (
+            "cybersecurity",
+            "Google Cybersecurity Professional Certificate",
+            "https://www.coursera.org/professional-certificates/google-cybersecurity",
+        ),
+        (
+            "devsecops",
+            "Google Cybersecurity Professional Certificate",
+            "https://www.coursera.org/professional-certificates/google-cybersecurity",
+        ),
+        (
+            "devops",
+            "DevOps, Cloud, and Agile Foundations Specialization",
+            "https://www.coursera.org/specializations/devops-cloud-and-agile-foundations",
+        ),
+        (
+            "mlops",
+            "Machine Learning Engineering for Production (MLOps) Specialization",
+            "https://www.coursera.org/specializations/machine-learning-engineering-for-production-mlops",
+        ),
+        (
+            "frontend",
+            "Meta Front-End Developer Professional Certificate",
+            "https://www.coursera.org/professional-certificates/meta-front-end-developer",
+        ),
+        (
+            "full stack",
+            "IBM Full Stack Software Developer Professional Certificate",
+            "https://www.coursera.org/professional-certificates/ibm-full-stack-cloud-developer",
+        ),
+        (
+            "backend",
+            "Java Programming and Software Engineering Fundamentals Specialization",
+            "https://www.coursera.org/specializations/java-programming",
+        ),
+        (
+            "android",
+            "Android App Development Specialization",
+            "https://www.coursera.org/specializations/android-app-development",
+        ),
+        (
+            "ios",
+            "iOS App Development with Swift Specialization",
+            "https://www.coursera.org/specializations/ios-app-development-swift",
+        ),
+        (
+            "ux design",
+            "Google UX Design Professional Certificate",
+            "https://www.coursera.org/professional-certificates/google-ux-design",
+        ),
+        (
+            "product manager",
+            "Digital Product Management Specialization",
+            "https://www.coursera.org/specializations/digital-product-management",
+        ),
+        (
+            "postgresql",
+            "PostgreSQL for Everybody Specialization",
+            "https://www.coursera.org/specializations/postgresql-for-everybody",
+        ),
+        (
+            "qa",
+            "Software Testing and Automation Specialization",
+            "https://www.coursera.org/specializations/software-testing-automation",
+        ),
+        (
+            "blockcchain",
+            "Blockchain Specialization",
+            "https://www.coursera.org/specializations/blockchain",
+        ),
+        (
+            "game developer",
+            "Game Design and Development Specialization",
+            "https://www.coursera.org/specializations/game-design",
+        ),
+        (
+            "software architect",
+            "Software Design and Architecture Specialization",
+            "https://www.coursera.org/specializations/software-design-architecture",
+        ),
+        (
+            "engineering manager",
+            "Leading People and Teams Specialization",
+            "https://www.coursera.org/specializations/leading-people-teams",
+        ),
+        (
+            "technical writer",
+            "Writing in the Sciences",
+            "https://www.coursera.org/learn/sciwrite",
+        ),
+    ]
+    picked: list[tuple[str, str]] = []
+    seen_url: set[str] = set()
+    for needle, title, url in catalog:
+        if needle in r and url not in seen_url:
+            seen_url.add(url)
+            picked.append((title, url))
+        if len(picked) >= 4:
+            break
+    if not picked:
+        picked = [
+            (
+                "Google Data Analytics Professional Certificate",
+                "https://www.coursera.org/professional-certificates/google-data-analytics",
+            ),
+            (
+                "Python for Everybody Specialization",
+                "https://www.coursera.org/specializations/python",
+            ),
+        ]
+    return picked[:5]
 
-    st.markdown('<h1 class="title">JSOM Smart Advisor</h1>', unsafe_allow_html=True)
-    st.markdown(
-        '<p class="subtitle">Tell us what you’re pursuing, upload your resume, and we’ll recommend '
-        'JSOM subjects that prepare you for your goal.</p>',
-        unsafe_allow_html=True,
+
+def _resume_file_from_bytes(data: bytes, filename: str) -> io.BytesIO:
+    """BytesIO wrapper so extract_resume_text sees a .name for PDF vs TXT."""
+    buf = io.BytesIO(data)
+    buf.name = filename
+    return buf
+
+
+def run_jsom_advisor_pipeline(
+    llm: Any,
+    pursuing: str,
+    target_role: str,
+    resume_bytes: bytes,
+    resume_filename: str,
+) -> dict[str, Any]:
+    """Run scrape → gaps → Grok recommendation. Returns a dict for UI rendering."""
+    resume_file = _resume_file_from_bytes(resume_bytes, resume_filename)
+    resume_text = extract_resume_text(resume_file)
+    skills = extract_skills_from_resume(resume_text)
+    matched_skills, missing_skills, roadmap_slug, gap_source_note = (
+        compute_skill_gaps(resume_text, skills, target_role.strip())
     )
+    program_map, pursuit_warning = match_pursuing_to_programs(pursuing.strip())
+    programs_context = fetch_program_context(program_map)
+    course_catalog = extract_course_catalog(programs_context)
+    program_key = PURSUIT_TO_PROGRAM.get(pursuing.strip(), pursuing.strip())
+    err_msg: str | None = None
 
-    if not llm:
-        st.warning(
-            "To enable recommendations, add **XAI_API_KEY** (Grok) in Streamlit Cloud "
-            "**Settings → Secrets**, or in `config/.env` locally."
+    if not programs_context.strip():
+        answer = DEFAULT_NO_COURSE_MESSAGE
+        no_match = True
+    else:
+        prompt = build_recommendation_prompt(
+            pursuing.strip(),
+            skills,
+            target_role.strip(),
+            programs_context,
+            course_catalog,
+            program_key,
         )
-    with st.container():
-
-        pursuing = st.selectbox(
-            "What program are you pursuing?",
-            options=["Select your program"] + PURSUIT_OPTIONS,
-            index=0,
-            help="Choose your exact JSOM degree/program.",
-        )
-
-        resume_file = st.file_uploader(
-            "Upload your resume",
-            type=["pdf", "txt"],
-            help="Upload a recent version of your resume (PDF or TXT).",
-        )
-
-        target_role = st.selectbox(
-            "What career path are you aiming for?",
-            options=["Select a career path"] + CAREER_PATH_OPTIONS,
-            index=0,
-            help="Career paths mapped to standard industry topic checklists (open-source JSON).",
-        )
-
-        if st.button("Get JSOM Subject Recommendations"):
-            if pursuing == "Select your program":
-                st.warning("Please choose what you’re pursuing from the dropdown.")
-            elif not resume_file:
-                st.warning("Please upload your resume.")
-            elif target_role == "Select a career path":
-                st.warning("Please choose your target career path from the dropdown.")
-            elif not llm:
-                st.error(
-                    "Recommendations are disabled. Set **XAI_API_KEY** (Grok) in Streamlit secrets or config/.env."
-                )
-            else:
-                with st.spinner("Analyzing your resume and JSOM programs..."):
-                    resume_text = extract_resume_text(resume_file)
-                    skills = extract_skills_from_resume(resume_text)
-                    matched_skills, missing_skills, roadmap_slug, gap_source_note = (
-                        compute_skill_gaps(resume_text, skills, target_role.strip())
-                    )
-                    program_map, pursuit_warning = match_pursuing_to_programs(pursuing.strip())
-                    programs_context = fetch_program_context(program_map)
-                    course_catalog = extract_course_catalog(programs_context)
-
-                    if not programs_context.strip():
-                        answer = DEFAULT_NO_COURSE_MESSAGE
-                        no_match = True
-                    else:
-                        program_key = PURSUIT_TO_PROGRAM.get(
-                            pursuing.strip(), pursuing.strip()
-                        )
-                        prompt = build_recommendation_prompt(
-                            pursuing.strip(),
-                            skills,
-                            target_role.strip(),
-                            programs_context,
-                            course_catalog,
-                            program_key,
-                        )
-
-                        try:
-                            response = llm.invoke(prompt)
-                            raw_answer = (
-                                response.content
-                                if hasattr(response, "content")
-                                else str(response)
-                            )
-                            answer, no_match = parse_llm_recommendation(raw_answer)
-                            hint_txt = career_program_alignment_hint(
-                                program_key, target_role.strip()
-                            )
-                            if (
-                                no_match
-                                and "MUST respond with STATUS: OK" in hint_txt
-                            ):
-                                retry_prompt = f"""Your previous answer used STATUS: NO_MATCH, but this pairing is a strong fit.
+        try:
+            response = llm.invoke(prompt)
+            raw_answer = (
+                response.content
+                if hasattr(response, "content")
+                else str(response)
+            )
+            answer, no_match = parse_llm_recommendation(raw_answer)
+            hint_txt = career_program_alignment_hint(
+                program_key, target_role.strip()
+            )
+            if no_match and "MUST respond with STATUS: OK" in hint_txt:
+                retry_prompt = f"""Your previous answer used STATUS: NO_MATCH, but this pairing is a strong fit.
 
 Career path: {target_role.strip()}
 Program: {program_key}
@@ -1255,61 +1753,325 @@ Pull every course line you can find that matches a subject code (like BUAN 6398)
 PROGRAM CONTEXT:
 {programs_context[:min(len(programs_context), 48000)]}
 """
-                                response = llm.invoke(retry_prompt)
-                                raw_answer = (
-                                    response.content
-                                    if hasattr(response, "content")
-                                    else str(response)
-                                )
-                                answer, no_match = parse_llm_recommendation(
-                                    raw_answer
-                                )
-                            # Guardrail: if model returns too few concrete course lines,
-                            # enrich with deterministic catalog-derived list.
-                            if not no_match and count_course_lines(answer) < 4:
-                                fallback = build_fallback_course_list_from_catalog(
-                                    course_catalog,
-                                    program_key,
-                                    target_role.strip(),
-                                )
-                                if fallback:
-                                    answer = fallback
-                        except Exception as e:
-                            answer = (
-                                "I encountered an error while generating recommendations. "
-                                "Please try again or check your API configuration."
-                            )
-                            no_match = True
-                            st.error(str(e))
-
-                if pursuit_warning:
-                    st.info(pursuit_warning)
-
-                if skills:
-                    st.subheader("Skills detected from your resume")
-                    st.write(", ".join(skills))
-                else:
-                    st.subheader("Skills detected from your resume")
-                    st.write("No clear skills were detected from the uploaded resume.")
-
-                st.subheader("Skill gaps for your target role")
-                st.caption(gap_source_note)
-                if missing_skills:
-                    st.write(", ".join(missing_skills))
-                else:
-                    st.write("No major gaps detected against the selected topic list for this role.")
-
-                st.subheader("Recommended JSOM Subjects for Your Goal")
-                if no_match:
-                    st.info(
-                        "No course list is suggested for this program + career path combination "
-                        "(or catalog data wasn’t enough). Read the note below."
-                    )
-                answer_html = html.escape(answer).replace("\n", "<br/>")
-                st.markdown(
-                    f"<div class='answer-card'>{answer_html}</div>",
-                    unsafe_allow_html=True,
+                response = llm.invoke(retry_prompt)
+                raw_answer = (
+                    response.content
+                    if hasattr(response, "content")
+                    else str(response)
                 )
+                answer, no_match = parse_llm_recommendation(raw_answer)
+            if not no_match and count_course_lines(answer) < 4:
+                fallback = build_fallback_course_list_from_catalog(
+                    course_catalog,
+                    program_key,
+                    target_role.strip(),
+                )
+                if fallback:
+                    answer = fallback
+        except Exception as e:
+            answer = (
+                "I encountered an error while generating recommendations. "
+                "Please try again or check your API configuration."
+            )
+            no_match = True
+            err_msg = str(e)
+
+    return {
+        "answer": answer,
+        "no_match": no_match,
+        "skills": skills,
+        "missing_skills": missing_skills,
+        "matched_skills": matched_skills,
+        "gap_source_note": gap_source_note,
+        "pursuit_warning": pursuit_warning,
+        "roadmap_slug": roadmap_slug,
+        "pursuing": pursuing,
+        "target_role": target_role,
+        "program_key": program_key,
+        "error": err_msg,
+    }
+
+
+def render_advisor_results(bundle: dict[str, Any]) -> None:
+    """Skills, gaps, metrics, recommendations card, semester flow, Coursera (if no_match)."""
+    if bundle.get("error"):
+        st.error(bundle["error"])
+
+    if bundle.get("pursuit_warning"):
+        st.info(bundle["pursuit_warning"])
+
+    skills = bundle.get("skills") or []
+    if skills:
+        st.subheader("Skills detected from your resume")
+        st.write(", ".join(skills))
+    else:
+        st.subheader("Skills detected from your resume")
+        st.write("No clear skills were detected from the uploaded resume.")
+
+    st.subheader("Skill gaps for your target role")
+    st.caption(bundle.get("gap_source_note", ""))
+    missing_skills = bundle.get("missing_skills") or []
+    if missing_skills:
+        st.write(", ".join(missing_skills))
+    else:
+        st.write("No major gaps detected against the selected topic list for this role.")
+
+    _sm = skill_metrics_alignment(
+        bundle.get("matched_skills") or [],
+        missing_skills,
+        bundle.get("roadmap_slug"),
+    )
+    render_skill_metrics_block(_sm)
+
+    no_match = bool(bundle.get("no_match"))
+    answer = bundle.get("answer") or ""
+    pursuing = bundle.get("pursuing") or ""
+    target_role = bundle.get("target_role") or ""
+
+    st.subheader("Recommended JSOM Subjects for Your Goal")
+    if no_match:
+        st.info(
+            "No course list is suggested for this program + career path combination "
+            "(or catalog data wasn’t enough). Read the note below."
+        )
+    answer_html = html.escape(answer).replace("\n", "<br/>")
+    st.markdown(
+        f"<div class='answer-card'>{answer_html}</div>",
+        unsafe_allow_html=True,
+    )
+    pk = PURSUIT_TO_PROGRAM.get(pursuing.strip(), pursuing.strip())
+    if not no_match:
+        render_semester_plan_flowchart(pk, pursuing.strip(), answer)
+    if no_match:
+        st.markdown("---")
+        st.subheader("Suggested Coursera paths for your goal")
+        st.caption(
+            "Shown only when no JSOM course list was returned above. "
+            "These are external resources—check prerequisites and your degree plan with JSOM advising."
+        )
+        for ctitle, curl in coursera_suggestions_for_target_role(target_role.strip()):
+            st.markdown(f"- [{ctitle}]({curl})")
+
+
+def init_chat_session_state() -> None:
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = []
+    if "chat_phase" not in st.session_state:
+        st.session_state.chat_phase = "pick_program"
+    if "chat_pursuing" not in st.session_state:
+        st.session_state.chat_pursuing = None
+    if "chat_target_role" not in st.session_state:
+        st.session_state.chat_target_role = None
+    if "chat_resume_bytes" not in st.session_state:
+        st.session_state.chat_resume_bytes = None
+    if "chat_resume_filename" not in st.session_state:
+        st.session_state.chat_resume_filename = None
+    if "chat_resume_fingerprint" not in st.session_state:
+        st.session_state.chat_resume_fingerprint = None
+    if "chat_result_bundle" not in st.session_state:
+        st.session_state.chat_result_bundle = None
+    if "chat_welcomed" not in st.session_state:
+        st.session_state.chat_welcomed = False
+    if "chat_upload_key" not in st.session_state:
+        st.session_state.chat_upload_key = 0
+
+
+def reset_chat_conversation() -> None:
+    st.session_state.chat_messages = []
+    st.session_state.chat_phase = "pick_program"
+    st.session_state.chat_pursuing = None
+    st.session_state.chat_target_role = None
+    st.session_state.chat_resume_bytes = None
+    st.session_state.chat_resume_filename = None
+    st.session_state.chat_resume_fingerprint = None
+    st.session_state.chat_result_bundle = None
+    st.session_state.chat_welcomed = False
+    st.session_state.chat_upload_key = int(st.session_state.chat_upload_key) + 1
+
+
+def main():
+    llm = get_llm()
+    init_chat_session_state()
+
+    st.markdown(
+        """
+<div class="jsom-app-header" role="banner">
+  <div class="jsom-app-header-inner">
+    <div class="jsom-header-brand">
+      <span class="jsom-logo-tile" aria-hidden="true">UT<br/>Dallas</span>
+      <div>
+        <h1 class="jsom-header-title">JSOM Smart Advisor</h1>
+        <p class="jsom-header-sub">Naveen Jindal School of Management · The University of Texas at Dallas</p>
+      </div>
+    </div>
+    <div class="jsom-header-pill"><span class="jsom-dot" aria-hidden="true"></span> AI Advisor Active</div>
+  </div>
+</div>
+<div class="jsom-welcome-banner">
+  <div class="jsom-welcome-accent" aria-hidden="true"></div>
+  <div class="jsom-welcome-inner">
+    <span class="jsom-welcome-ai">AI</span>
+    <p>Welcome — use the chat below and tap each step’s options. We’ll suggest JSOM courses aligned to your resume and career goal.</p>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    with st.sidebar:
+        st.markdown("### Conversation")
+        if st.button("Start new conversation", use_container_width=True):
+            reset_chat_conversation()
+            st.rerun()
+
+    if not llm:
+        st.warning(
+            "To enable recommendations, add **XAI_API_KEY** (Grok) in Streamlit Cloud "
+            "**Settings → Secrets**, or in `config/.env` locally."
+        )
+
+    # Run advisor after user picked career (one-shot generation)
+    if st.session_state.chat_phase == "generating":
+        if not llm:
+            st.session_state.chat_messages.append(
+                {
+                    "role": "assistant",
+                    "content": "I can’t generate recommendations without **XAI_API_KEY**. Add it in Streamlit **Secrets** or `config/.env`, then choose your career path again.",
+                }
+            )
+            st.session_state.chat_phase = "pick_career"
+            st.rerun()
+        elif not (
+            st.session_state.chat_pursuing
+            and st.session_state.chat_target_role
+            and st.session_state.chat_resume_bytes
+            and st.session_state.chat_resume_filename
+        ):
+            st.session_state.chat_phase = "upload_resume"
+            st.rerun()
+        else:
+            with st.spinner("Analyzing your resume and JSOM programs…"):
+                bundle = run_jsom_advisor_pipeline(
+                    llm,
+                    st.session_state.chat_pursuing,
+                    st.session_state.chat_target_role,
+                    st.session_state.chat_resume_bytes,
+                    st.session_state.chat_resume_filename,
+                )
+            st.session_state.chat_result_bundle = bundle
+            st.session_state.chat_messages.append(
+                {
+                    "role": "assistant",
+                    "content": "Here’s your personalized analysis. **Scroll down** for skills, gaps, course recommendations, and the semester plan.",
+                }
+            )
+            st.session_state.chat_phase = "results_shown"
+
+    if (
+        st.session_state.chat_phase == "pick_program"
+        and not st.session_state.chat_welcomed
+    ):
+        st.session_state.chat_messages.append(
+            {
+                "role": "assistant",
+                "content": (
+                    "Hi! I’m the **JSOM Smart Advisor**. "
+                    "**Step 1:** Which program are you pursuing? Tap an option below."
+                ),
+            }
+        )
+        st.session_state.chat_welcomed = True
+
+    with st.container():
+        for msg in st.session_state.chat_messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+    # Option pickers (chat-style; not dropdowns)
+    phase = st.session_state.chat_phase
+
+    if phase == "pick_program":
+        st.markdown(
+            '<p class="chat-option-hint">Choose your JSOM program</p>',
+            unsafe_allow_html=True,
+        )
+        cols = st.columns(2)
+        for i, opt in enumerate(PURSUIT_OPTIONS):
+            if cols[i % 2].button(opt, key=f"chat_prog_{i}", use_container_width=True):
+                st.session_state.chat_pursuing = opt
+                st.session_state.chat_messages.append(
+                    {"role": "user", "content": opt}
+                )
+                st.session_state.chat_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": (
+                            "**Step 2:** Upload your resume (PDF or TXT) using the uploader below."
+                        ),
+                    }
+                )
+                st.session_state.chat_phase = "upload_resume"
+                st.rerun()
+
+    elif phase == "upload_resume":
+        st.markdown(
+            '<p class="chat-option-hint">Upload resume</p>',
+            unsafe_allow_html=True,
+        )
+        up = st.file_uploader(
+            "Resume file",
+            type=["pdf", "txt"],
+            label_visibility="collapsed",
+            key=f"chat_resume_uploader_{st.session_state.chat_upload_key}",
+        )
+        if up is not None:
+            data = up.getvalue()
+            fp = f"{up.name}:{len(data)}"
+            if st.session_state.chat_resume_fingerprint != fp:
+                st.session_state.chat_resume_bytes = data
+                st.session_state.chat_resume_filename = up.name
+                st.session_state.chat_resume_fingerprint = fp
+                st.session_state.chat_messages.append(
+                    {
+                        "role": "user",
+                        "content": f"📎 Uploaded **{up.name}**",
+                    }
+                )
+                st.session_state.chat_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": (
+                            "**Step 3:** What career path are you aiming for? "
+                            "Choose an option below."
+                        ),
+                    }
+                )
+                st.session_state.chat_phase = "pick_career"
+                st.rerun()
+
+    elif phase == "pick_career":
+        st.markdown(
+            '<p class="chat-option-hint">Choose your target career path</p>',
+            unsafe_allow_html=True,
+        )
+        cols = st.columns(2)
+        for i, opt in enumerate(CAREER_PATH_OPTIONS):
+            if cols[i % 2].button(opt, key=f"chat_career_{i}", use_container_width=True):
+                st.session_state.chat_target_role = opt
+                st.session_state.chat_messages.append(
+                    {"role": "user", "content": opt}
+                )
+                st.session_state.chat_phase = "generating"
+                st.rerun()
+
+    if st.session_state.chat_phase == "results_shown" and st.session_state.chat_result_bundle:
+        st.markdown("---")
+        st.markdown("### Your results")
+        render_advisor_results(st.session_state.chat_result_bundle)
+        st.markdown(
+            '<p class="chat-option-hint">Want to try another program or path? Use **Start new conversation** in the sidebar.</p>',
+            unsafe_allow_html=True,
+        )
 
     st.markdown("---")
     st.markdown(
