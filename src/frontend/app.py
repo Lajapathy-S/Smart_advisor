@@ -767,6 +767,139 @@ def extract_skills_from_resume(text: str) -> list[str]:
     return final_skills
 
 
+SKILLS_LLM_MAX_RESUME_CHARS = 14_000
+
+
+def _skill_dedupe_key(s: str) -> str:
+    return re.sub(r"[^a-z0-9+#./ ]", "", (s or "").lower()).strip()
+
+
+def skill_evidence_in_resume(skill: str, resume_text: str) -> bool:
+    """True if the resume text plausibly supports this skill (anti-hallucination for LLM path)."""
+    s = (skill or "").strip()
+    if not s or len(s) > 80:
+        return False
+    lower = resume_text.lower()
+    sl = s.lower().strip()
+    if not sl:
+        return False
+    if len(sl) >= 4 and sl in lower:
+        return True
+    compact_r = re.sub(r"[^a-z0-9]", "", lower)
+    compact_s = re.sub(r"[^a-z0-9]", "", sl)
+    if len(compact_s) >= 4 and compact_s in compact_r:
+        return True
+    try:
+        return (
+            re.search(rf"(?<![a-z0-9]){re.escape(sl)}(?![a-z0-9])", lower)
+            is not None
+        )
+    except re.error:
+        return sl in lower
+
+
+def _extract_first_json_array(text: str) -> str | None:
+    start = text.find("[")
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        ch = text[i]
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
+def _parse_json_skill_array(raw: str) -> list[str]:
+    text = (raw or "").strip()
+    if not text:
+        return []
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
+    if fence:
+        text = fence.group(1).strip()
+    chunk = _extract_first_json_array(text)
+    if not chunk:
+        return []
+    try:
+        data = json.loads(chunk)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[str] = []
+    for item in data:
+        if isinstance(item, str) and item.strip():
+            out.append(item.strip())
+    return out
+
+
+def extract_skills_from_resume_llm(llm: Any, resume_text: str) -> list[str]:
+    """LLM pass: JSON skill list, kept only when grounded in resume text."""
+    if not llm or not (resume_text or "").strip():
+        return []
+    clip = resume_text[:SKILLS_LLM_MAX_RESUME_CHARS]
+    prompt = f"""You extract professional skills from a resume. Use ONLY the resume text below.
+
+Rules:
+- Include tools, languages, platforms, methods, and soft skills clearly supported by the text (stated or clearly implied by named work, tools, metrics, or responsibilities).
+- Use short canonical labels (e.g. "Python", "SQL", "Agile", "Stakeholder communication").
+- Do NOT list employers, schools, or cities as skills. Do NOT invent skills with no support in the text.
+- At most 35 skills; prefer precision over quantity.
+
+Output ONLY a JSON array of strings. No markdown fences, no object wrapper, no commentary.
+
+RESUME TEXT:
+{clip}
+"""
+    try:
+        response = llm.invoke(prompt)
+        raw = response.content if hasattr(response, "content") else str(response)
+    except Exception:
+        return []
+    candidates = _parse_json_skill_array(raw)
+    merged_raw: list[str] = []
+    seen_raw: set[str] = set()
+    for c in candidates:
+        if not skill_evidence_in_resume(c, resume_text):
+            continue
+        key = _skill_dedupe_key(c)
+        if not key or len(key) < 2:
+            continue
+        if key not in seen_raw:
+            seen_raw.add(key)
+            merged_raw.append(c)
+    final_skills: list[str] = []
+    seen = set()
+    for s in merged_raw:
+        s_clean = re.sub(r"[^a-z0-9+#./ ]", "", s.lower()).strip()
+        if 2 <= len(s_clean) <= 40 and s_clean not in seen:
+            seen.add(s_clean)
+            final_skills.append(s_clean)
+    return final_skills
+
+
+def extract_skills_hybrid(llm: Any | None, resume_text: str) -> list[str]:
+    """Heuristic keyword/skill-section extraction, merged with LLM extraction when llm is available."""
+    heuristic = extract_skills_from_resume(resume_text)
+    if llm is None:
+        return heuristic
+    llm_skills = extract_skills_from_resume_llm(llm, resume_text)
+    if not llm_skills:
+        return heuristic
+    keys = {_skill_dedupe_key(s) for s in heuristic}
+    out = list(heuristic)
+    for s in llm_skills:
+        k = _skill_dedupe_key(s)
+        if k and k not in keys:
+            keys.add(k)
+            out.append(s)
+    return out
+
+
 def _infer_program_level(pursuing: str) -> str:
     text = pursuing.lower()
     if any(k in text for k in ["master", "masters", "ms ", "m.s", "mba", "graduate"]):
@@ -1703,7 +1836,7 @@ def run_jsom_advisor_pipeline(
     """Run scrape → gaps → Grok recommendation. Returns a dict for UI rendering."""
     resume_file = _resume_file_from_bytes(resume_bytes, resume_filename)
     resume_text = extract_resume_text(resume_file)
-    skills = extract_skills_from_resume(resume_text)
+    skills = extract_skills_hybrid(llm, resume_text)
     matched_skills, missing_skills, roadmap_slug, gap_source_note = (
         compute_skill_gaps(resume_text, skills, target_role.strip())
     )
