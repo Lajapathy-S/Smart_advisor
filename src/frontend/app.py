@@ -1271,7 +1271,7 @@ def skill_metrics_alignment(
     roadmap_slug: str | None,
 ) -> dict[str, Any]:
     """
-    Skill Metrics: how much the resume aligns with expected roadmap-style topics
+    Skill Alignment Metrics: how much the resume aligns with expected roadmap-style topics
     (same topic lists used in Skill gaps). Returns percent 0–100 and RAG-style zone color.
     """
     m_count = len(matched or [])
@@ -1304,8 +1304,8 @@ def skill_metrics_alignment(
 
 
 def render_skill_metrics_block(metrics: dict[str, Any]) -> None:
-    """Streamlit + HTML: color-coded alignment bar (Skill Metrics)."""
-    st.subheader("Skill Metrics")
+    """Streamlit + HTML: color-coded alignment bar (Skill Alignment Metrics)."""
+    st.subheader("Skill Alignment Metrics")
     pct = metrics.get("percent")
     color = metrics.get("color", "#6b7280")
     src = metrics.get("source", "roadmap")
@@ -1529,11 +1529,13 @@ def count_course_lines(text: str) -> int:
     """Count lines that look like concrete course entries (e.g., BUAN 6398 ...)."""
     if not text:
         return 0
-    course_token_re = re.compile(r"[A-Z]{2,5}\s\d{4}\b")
+    course_line_re = re.compile(
+        r"^\s*(?:[-*•]\s*|\d+\.\s*)?(?:[A-Z]{2,5}\s*\d{4}\b)"
+    )
     n = 0
     for line in text.splitlines():
         norm = re.sub(r"[*_`#]+", "", line)
-        if course_token_re.search(norm):
+        if course_line_re.search(norm):
             n += 1
     return n
 
@@ -1542,14 +1544,16 @@ def extract_course_lines_from_recommendation(text: str) -> list[str]:
     """Pull lines that contain a subject code (e.g. BUAN 6398) from model or fallback output."""
     if not (text or "").strip():
         return []
-    course_token_re = re.compile(r"[A-Z]{2,5}\s\d{4}\b")
+    course_line_re = re.compile(
+        r"^\s*(?:[-*•]\s*|\d+\.\s*)?(?:[A-Z]{2,5}\s*\d{4}\b)"
+    )
     out: list[str] = []
     seen: set[str] = set()
     for line in text.splitlines():
         norm = re.sub(r"[*_`#]+", "", line).strip()
         if not norm or norm.upper().startswith("STATUS:"):
             continue
-        if not course_token_re.search(norm):
+        if not course_line_re.search(norm):
             continue
         norm = re.sub(r"^[-*•]+\s*", "", norm).strip()
         norm = re.sub(r"^\d+\.\s*", "", norm).strip()
