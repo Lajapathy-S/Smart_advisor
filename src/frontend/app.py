@@ -2289,28 +2289,24 @@ def main():
             key="chat_program_dropdown",
             label_visibility="collapsed",
         )
-        if st.button(
-            "Confirm program",
-            key="chat_program_confirm",
-            use_container_width=True,
+        if (
+            program_pick != "Select a JSOM program"
+            and program_pick != st.session_state.chat_pursuing
         ):
-            if program_pick == "Select a JSOM program":
-                st.warning("Please select a program to continue.")
-            else:
-                st.session_state.chat_pursuing = program_pick
-                st.session_state.chat_messages.append(
-                    {"role": "user", "content": program_pick}
-                )
-                st.session_state.chat_messages.append(
-                    {
-                        "role": "assistant",
-                        "content": (
-                            "**Step 2:** Upload your resume (PDF or TXT) using the uploader below."
-                        ),
-                    }
-                )
-                st.session_state.chat_phase = "upload_resume"
-                st.rerun()
+            st.session_state.chat_pursuing = program_pick
+            st.session_state.chat_messages.append(
+                {"role": "user", "content": program_pick}
+            )
+            st.session_state.chat_messages.append(
+                {
+                    "role": "assistant",
+                    "content": (
+                        "**Step 2:** Upload your resume (PDF or TXT) using the uploader below."
+                    ),
+                }
+            )
+            st.session_state.chat_phase = "upload_resume"
+            st.rerun()
 
     elif phase == "upload_resume":
         st.markdown(
@@ -2417,20 +2413,16 @@ def main():
             key="chat_career_dropdown",
             label_visibility="collapsed",
         )
-        if st.button(
-            "Confirm career path",
-            key="chat_career_confirm",
-            use_container_width=True,
+        if (
+            career_pick != "Select a target career path"
+            and career_pick != st.session_state.chat_target_role
         ):
-            if career_pick == "Select a target career path":
-                st.warning("Please select a target career path to continue.")
-            else:
-                st.session_state.chat_target_role = career_pick
-                st.session_state.chat_messages.append(
-                    {"role": "user", "content": career_pick}
-                )
-                st.session_state.chat_phase = "generating"
-                st.rerun()
+            st.session_state.chat_target_role = career_pick
+            st.session_state.chat_messages.append(
+                {"role": "user", "content": career_pick}
+            )
+            st.session_state.chat_phase = "generating"
+            st.rerun()
 
     if st.session_state.chat_phase == "results_shown" and st.session_state.chat_result_bundle:
         st.markdown("---")
