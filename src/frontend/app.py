@@ -700,6 +700,44 @@ def extract_resume_text(uploaded_file) -> str:
         return ""
 
 
+def _first_course_code_token(text: str) -> str | None:
+    m = re.search(r"\b([A-Z]{2,5})\s*(\d{4})\b", (text or "").upper())
+    if not m:
+        return None
+    return f"{m.group(1)} {m.group(2)}"
+
+
+def extract_completed_courses_from_transcript(text: str) -> list[str]:
+    """
+    Parse transcript text and return completed course code tokens (e.g., BUAN 6320).
+    """
+    if not (text or "").strip():
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in re.finditer(r"\b([A-Z]{2,5})\s*(\d{4})\b", text.upper()):
+        code = f"{m.group(1)} {m.group(2)}"
+        if code in seen:
+            continue
+        seen.add(code)
+        out.append(code)
+    return out
+
+
+def estimate_completed_semesters_from_transcript(
+    transcript_text: str, completed_courses: list[str]
+) -> int:
+    """
+    Estimate semesters completed using explicit 'Term:' markers; fallback to course-count heuristic.
+    """
+    t = transcript_text or ""
+    markers = re.findall(r"\bterm\s*:", t, flags=re.IGNORECASE)
+    if markers:
+        return max(0, len(markers))
+    # Fallback heuristic: roughly 4 completed courses per term.
+    return max(0, len(completed_courses) // 4)
+
+
 def extract_skills_from_resume(text: str) -> list[str]:
     """Heuristic skill extraction without LLM (looks for 'Skills' section + known keywords)."""
     text_lower = text.lower()
@@ -1429,8 +1467,14 @@ def build_recommendation_prompt(
     programs_context: str,
     course_catalog: str,
     program_key: str,
+    completed_courses: list[str] | None = None,
 ) -> str:
     skills_str = ", ".join(skills) if skills else "not clearly specified"
+    completed_courses_str = (
+        ", ".join(completed_courses)
+        if completed_courses
+        else "none provided"
+    )
     hint = career_program_alignment_hint(program_key, goal)
     catalog_note = ""
     if not (course_catalog or "").strip():
@@ -1449,6 +1493,7 @@ Student goal:
 - JSOM program (internal): {program_key}
 - Target career path: {goal}
 - Current skills: {skills_str}
+- Completed JSOM courses from transcript (do NOT recommend again): {completed_courses_str}
 
 {hint}
 
@@ -1481,6 +1526,7 @@ IMPORTANT – Output format (when STATUS: OK) — follow exactly:
 - When the EXTRACTED COURSE CATALOG block below is non-empty, **prioritize those lines** and include the same codes in your answer.
 - When codes appear anywhere in PROGRAM CONTEXT, copy them — do not paraphrase the degree into tracks.
 - Recommend **5–10 specific courses** when the context lists that many; otherwise as many as are clearly named with codes in the text.
+- Do NOT include any course whose code appears in the student's completed-course list above.
 - After the course list, add 1 short paragraph tying choices to the target career path (data analyst skills: SQL, visualization, statistics, etc.).
 
 {catalog_note}
@@ -1594,10 +1640,39 @@ def distribute_courses_to_semesters(
     return plan
 
 
+_ELECTIVE_HINTS = (
+    "elective",
+    "special topics",
+    "independent study",
+    "internship",
+    "practicum",
+    "seminar",
+)
+
+
+def _is_likely_elective(course_line: str) -> bool:
+    line = (course_line or "").lower()
+    return any(h in line for h in _ELECTIVE_HINTS)
+
+
+def _format_course_for_semester_box(course_line: str) -> str:
+    """
+    Mark likely core courses with square brackets so users can distinguish
+    core-looking recommendations from likely electives at a glance.
+    """
+    c = (course_line or "").strip()
+    if not c:
+        return c
+    if _is_likely_elective(c):
+        return c
+    return f"{c} *"
+
+
 def render_semester_plan_flowchart(
     program_key: str,
     pursuing_display: str,
     answer_text: str,
+    completed_semesters: int = 0,
 ) -> None:
     """
     Flowchart: semester columns, square course boxes, arrows between semesters.
@@ -1606,29 +1681,39 @@ def render_semester_plan_flowchart(
     courses = extract_course_lines_from_recommendation(answer_text)
     if not courses:
         return
-    n_sem = semester_count_for_degree(program_key, pursuing_display)
-    plan = distribute_courses_to_semesters(courses, n_sem)
-    pace = "four-year (8 semesters)" if n_sem == 8 else "two-year (4 semesters)"
+    n_sem_total = semester_count_for_degree(program_key, pursuing_display)
+    completed_sem = max(0, int(completed_semesters))
+    remaining_sem = max(1, n_sem_total - completed_sem)
+    plan = distribute_courses_to_semesters(courses, remaining_sem)
+    pace = (
+        "four-year (8 semesters)"
+        if n_sem_total == 8
+        else "two-year (4 semesters)"
+    )
 
     st.subheader("Illustrative semester plan")
     st.caption(
-        f"Courses spread across **{n_sem} semesters** ({pace} typical). "
+        f"Courses spread across the **remaining {remaining_sem} semesters** "
+        f"(of {n_sem_total} total; {completed_sem} completed, {pace} typical). "
         "Ordering is a planning aid only—not official prerequisites or term offerings. "
         "Confirm with the JSOM catalog and your advisor."
     )
 
     parts: list[str] = ['<div class="semester-flow" role="group" aria-label="Semester course plan">']
-    for sem in range(1, n_sem + 1):
-        if sem > 1:
+    for i in range(remaining_sem):
+        sem = completed_sem + i + 1
+        if i > 0:
             parts.append('<div class="semester-arrow" aria-hidden="true">&#8594;</div>')
         parts.append('<div class="semester-col">')
         parts.append(
             f'<div class="semester-title">{html.escape(f"Semester {sem}")}</div>'
         )
-        sem_courses = plan.get(sem, [])
+        sem_courses = plan.get(i + 1, [])
         if sem_courses:
             for c in sem_courses:
-                parts.append(f'<div class="course-box">{html.escape(c)}</div>')
+                parts.append(
+                    f'<div class="course-box">{html.escape(_format_course_for_semester_box(c))}</div>'
+                )
         else:
             parts.append(
                 '<div class="course-box empty">Electives / plan with advisor</div>'
@@ -1636,6 +1721,9 @@ def render_semester_plan_flowchart(
         parts.append("</div>")
     parts.append("</div>")
     st.markdown("".join(parts), unsafe_allow_html=True)
+    st.caption(
+        "* indicates likely core courses; unlabeled courses are likely electives."
+    )
 
 
 def build_fallback_course_list_from_catalog(
@@ -1836,10 +1924,22 @@ def run_jsom_advisor_pipeline(
     target_role: str,
     resume_bytes: bytes,
     resume_filename: str,
+    transcript_bytes: bytes | None = None,
+    transcript_filename: str | None = None,
 ) -> dict[str, Any]:
     """Run scrape → gaps → Grok recommendation. Returns a dict for UI rendering."""
     resume_file = _resume_file_from_bytes(resume_bytes, resume_filename)
     resume_text = extract_resume_text(resume_file)
+    transcript_text = ""
+    completed_courses: list[str] = []
+    completed_semesters = 0
+    if transcript_bytes and transcript_filename:
+        transcript_file = _resume_file_from_bytes(transcript_bytes, transcript_filename)
+        transcript_text = extract_resume_text(transcript_file)
+        completed_courses = extract_completed_courses_from_transcript(transcript_text)
+        completed_semesters = estimate_completed_semesters_from_transcript(
+            transcript_text, completed_courses
+        )
     skills = extract_skills_hybrid(llm, resume_text)
     matched_skills, missing_skills, roadmap_slug, gap_source_note = (
         compute_skill_gaps(resume_text, skills, target_role.strip())
@@ -1861,6 +1961,7 @@ def run_jsom_advisor_pipeline(
             programs_context,
             course_catalog,
             program_key,
+            completed_courses,
         )
         try:
             response = llm.invoke(prompt)
@@ -1905,6 +2006,25 @@ PROGRAM CONTEXT:
                 )
                 if fallback:
                     answer = fallback
+            if completed_courses and not no_match:
+                completed_set = {c.upper() for c in completed_courses}
+                filtered_lines: list[str] = []
+                removed = 0
+                for line in answer.splitlines():
+                    code = _first_course_code_token(
+                        re.sub(r"[*_`#]+", "", (line or "")).strip()
+                    )
+                    if code and code.upper() in completed_set:
+                        removed += 1
+                        continue
+                    filtered_lines.append(line)
+                answer = "\n".join(filtered_lines).strip()
+                if removed > 0 and not answer:
+                    answer = (
+                        "Great progress — your transcript indicates you have already completed the "
+                        "currently matched course list from this program. Upload an updated transcript "
+                        "or try a different target role for additional recommendations."
+                    )
         except Exception as e:
             answer = (
                 "I encountered an error while generating recommendations. "
@@ -1925,6 +2045,8 @@ PROGRAM CONTEXT:
         "pursuing": pursuing,
         "target_role": target_role,
         "program_key": program_key,
+        "completed_courses": completed_courses,
+        "completed_semesters": completed_semesters,
         "error": err_msg,
     }
 
@@ -1964,6 +2086,8 @@ def render_advisor_results(bundle: dict[str, Any]) -> None:
     answer = bundle.get("answer") or ""
     pursuing = bundle.get("pursuing") or ""
     target_role = bundle.get("target_role") or ""
+    completed_courses = bundle.get("completed_courses") or []
+    completed_semesters = int(bundle.get("completed_semesters") or 0)
 
     st.subheader("Recommended JSOM Subjects for Your Goal")
     if no_match:
@@ -1978,7 +2102,17 @@ def render_advisor_results(bundle: dict[str, Any]) -> None:
     )
     pk = PURSUIT_TO_PROGRAM.get(pursuing.strip(), pursuing.strip())
     if not no_match:
-        render_semester_plan_flowchart(pk, pursuing.strip(), answer)
+        render_semester_plan_flowchart(
+            pk,
+            pursuing.strip(),
+            answer,
+            completed_semesters=completed_semesters,
+        )
+    if completed_courses:
+        st.caption(
+            f"Transcript uploaded: detected {len(completed_courses)} completed course(s), "
+            f"estimated completed semesters: {completed_semesters}."
+        )
     if no_match:
         st.markdown("---")
         st.subheader("Suggested Coursera paths for your goal")
@@ -2005,6 +2139,12 @@ def init_chat_session_state() -> None:
         st.session_state.chat_resume_filename = None
     if "chat_resume_fingerprint" not in st.session_state:
         st.session_state.chat_resume_fingerprint = None
+    if "chat_transcript_bytes" not in st.session_state:
+        st.session_state.chat_transcript_bytes = None
+    if "chat_transcript_filename" not in st.session_state:
+        st.session_state.chat_transcript_filename = None
+    if "chat_transcript_fingerprint" not in st.session_state:
+        st.session_state.chat_transcript_fingerprint = None
     if "chat_result_bundle" not in st.session_state:
         st.session_state.chat_result_bundle = None
     if "chat_welcomed" not in st.session_state:
@@ -2021,6 +2161,9 @@ def reset_chat_conversation() -> None:
     st.session_state.chat_resume_bytes = None
     st.session_state.chat_resume_filename = None
     st.session_state.chat_resume_fingerprint = None
+    st.session_state.chat_transcript_bytes = None
+    st.session_state.chat_transcript_filename = None
+    st.session_state.chat_transcript_fingerprint = None
     st.session_state.chat_result_bundle = None
     st.session_state.chat_welcomed = False
     st.session_state.chat_upload_key = int(st.session_state.chat_upload_key) + 1
@@ -2094,6 +2237,8 @@ def main():
                     st.session_state.chat_target_role,
                     st.session_state.chat_resume_bytes,
                     st.session_state.chat_resume_filename,
+                    st.session_state.chat_transcript_bytes,
+                    st.session_state.chat_transcript_filename,
                 )
             st.session_state.chat_result_bundle = bundle
             st.session_state.chat_messages.append(
@@ -2113,7 +2258,7 @@ def main():
                 "role": "assistant",
                 "content": (
                     "Hi! I’m the **JSOM Smart Advisor**. "
-                    "**Step 1:** Which program are you pursuing? Tap an option below."
+                    "**Step 1:** Which program are you pursuing? Select it from the dropdown below."
                 ),
             }
         )
@@ -2124,7 +2269,7 @@ def main():
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-    # Option pickers (chat-style; not dropdowns)
+    # Option pickers (chat-style with dropdowns)
     phase = st.session_state.chat_phase
 
     if phase == "pick_program":
@@ -2132,12 +2277,29 @@ def main():
             '<p class="chat-option-hint">Choose your JSOM program</p>',
             unsafe_allow_html=True,
         )
-        cols = st.columns(2)
-        for i, opt in enumerate(PURSUIT_OPTIONS):
-            if cols[i % 2].button(opt, key=f"chat_prog_{i}", use_container_width=True):
-                st.session_state.chat_pursuing = opt
+        program_options = ["Select a JSOM program"] + PURSUIT_OPTIONS
+        program_pick = st.selectbox(
+            "Choose your JSOM program",
+            options=program_options,
+            index=(
+                program_options.index(st.session_state.chat_pursuing)
+                if st.session_state.chat_pursuing in program_options
+                else 0
+            ),
+            key="chat_program_dropdown",
+            label_visibility="collapsed",
+        )
+        if st.button(
+            "Confirm program",
+            key="chat_program_confirm",
+            use_container_width=True,
+        ):
+            if program_pick == "Select a JSOM program":
+                st.warning("Please select a program to continue.")
+            else:
+                st.session_state.chat_pursuing = program_pick
                 st.session_state.chat_messages.append(
-                    {"role": "user", "content": opt}
+                    {"role": "user", "content": program_pick}
                 )
                 st.session_state.chat_messages.append(
                     {
@@ -2178,25 +2340,94 @@ def main():
                     {
                         "role": "assistant",
                         "content": (
-                            "**Step 3:** What career path are you aiming for? "
-                            "Choose an option below."
+                            "**Step 3 (optional):** Upload your transcript (PDF/TXT) so I can avoid "
+                            "already-completed courses and build the plan for remaining semesters."
+                        ),
+                    }
+                )
+                st.session_state.chat_phase = "upload_transcript"
+                st.rerun()
+
+    elif phase == "upload_transcript":
+        st.markdown(
+            '<p class="chat-option-hint">Upload transcript (optional)</p>',
+            unsafe_allow_html=True,
+        )
+        tr = st.file_uploader(
+            "Transcript file",
+            type=["pdf", "txt"],
+            label_visibility="collapsed",
+            key=f"chat_transcript_uploader_{st.session_state.chat_upload_key}",
+        )
+        if tr is not None:
+            t_data = tr.getvalue()
+            t_fp = f"{tr.name}:{len(t_data)}"
+            if st.session_state.chat_transcript_fingerprint != t_fp:
+                st.session_state.chat_transcript_bytes = t_data
+                st.session_state.chat_transcript_filename = tr.name
+                st.session_state.chat_transcript_fingerprint = t_fp
+                st.session_state.chat_messages.append(
+                    {"role": "user", "content": f"📄 Uploaded transcript **{tr.name}**"}
+                )
+                st.session_state.chat_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": (
+                            "**Step 4:** What career path are you aiming for? "
+                            "Select it from the dropdown below."
                         ),
                     }
                 )
                 st.session_state.chat_phase = "pick_career"
                 st.rerun()
+        if st.button(
+            "Skip transcript",
+            key="chat_transcript_skip",
+            use_container_width=True,
+        ):
+            st.session_state.chat_messages.append(
+                {"role": "user", "content": "Skipped transcript upload"}
+            )
+            st.session_state.chat_messages.append(
+                {
+                    "role": "assistant",
+                    "content": (
+                        "**Step 4:** What career path are you aiming for? "
+                        "Select it from the dropdown below."
+                    ),
+                }
+            )
+            st.session_state.chat_phase = "pick_career"
+            st.rerun()
 
     elif phase == "pick_career":
         st.markdown(
             '<p class="chat-option-hint">Choose your target career path</p>',
             unsafe_allow_html=True,
         )
-        cols = st.columns(2)
-        for i, opt in enumerate(CAREER_PATH_OPTIONS):
-            if cols[i % 2].button(opt, key=f"chat_career_{i}", use_container_width=True):
-                st.session_state.chat_target_role = opt
+        career_options = ["Select a target career path"] + CAREER_PATH_OPTIONS
+        career_pick = st.selectbox(
+            "Choose your target career path",
+            options=career_options,
+            index=(
+                career_options.index(st.session_state.chat_target_role)
+                if st.session_state.chat_target_role in career_options
+                else 0
+            ),
+            key="chat_career_dropdown",
+            label_visibility="collapsed",
+        )
+        if st.button(
+            "Confirm career path",
+            key="chat_career_confirm",
+            use_container_width=True,
+        ):
+            if career_pick == "Select a target career path":
+                st.warning("Please select a target career path to continue.")
+            else:
+                st.session_state.chat_target_role = career_pick
                 st.session_state.chat_messages.append(
-                    {"role": "user", "content": opt}
+                    {"role": "user", "content": career_pick}
                 )
                 st.session_state.chat_phase = "generating"
                 st.rerun()
