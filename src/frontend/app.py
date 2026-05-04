@@ -712,7 +712,8 @@ _TRANSCRIPT_CODE_RE = re.compile(r"\b([A-Z]{2,5})\s*(\d{4})\b")
 
 def _pick_richer_course_title(a: str, b: str) -> str:
     """Prefer the longer, more complete title (transcript vs catalog); ties favor catalog."""
-    a, b = (a or "").strip(), (b or "").strip()
+    a = _truncate_title_at_extra_course_listing((a or "").strip())
+    b = _truncate_title_at_extra_course_listing((b or "").strip())
     if not a:
         return b
     if not b:
@@ -724,18 +725,59 @@ def _pick_richer_course_title(a: str, b: str) -> str:
     return b
 
 
+_DEGREE_PAGE_PROSE_TAIL = re.compile(
+    r"\.\s+(In addition|Students who|Students must|Prerequisite|Prerequisites|Knowledge of|"
+    r"This course|For students|Note that|Approval of|Concurrent enrollment|"
+    r"May be used to satisfy)",
+    re.I,
+)
+
+
+def _strip_catalog_prose_suffix(tit: str) -> str:
+    """Cut degree-page boilerplate that often follows a course name on one HTML line."""
+    t = (tit or "").strip()
+    m = _DEGREE_PAGE_PROSE_TAIL.search(t)
+    if m and m.start() > 12:
+        return t[: m.start() + 1].strip()
+    return t
+
+
+def _truncate_title_at_extra_course_listing(title: str) -> str:
+    """
+    If a title string still contains another SUBJECT #### token (e.g. merged HTML line),
+    cut before the first extra listing. Keeps lone references like “prerequisite CS 6310”
+    when only one token appears and the prefix is short.
+    """
+    t = (title or "").strip()
+    if not t:
+        return ""
+    matches = list(_TRANSCRIPT_CODE_RE.finditer(t.upper()))
+    if len(matches) >= 2:
+        return t[: matches[0].start()].rstrip(" -,;:|/")
+    if len(matches) == 1:
+        prefix = t[: matches[0].start()].strip()
+        if len(prefix) >= 18:
+            return prefix.rstrip(" -,;:|/")
+    return t
+
+
 def _title_fragment_after_code_on_line(remainder: str) -> str:
     """Title text from the rest of a program-page or catalog line after a course code match."""
     if not remainder or not remainder.strip():
         return ""
     rem = remainder.strip()
+    # Same line often lists several courses; never include text after the next code.
+    nm = _TRANSCRIPT_CODE_RE.search(rem.upper())
+    if nm:
+        rem = rem[: nm.start()].rstrip(" -:|,")
     for stop in (" (", " — ", "\t", "|", ";"):
         if stop in rem:
             rem = rem.split(stop)[0]
     tit = re.sub(r"\s+", " ", rem).strip()
     if len(tit) > 140:
         tit = tit[:140].rsplit(" ", 1)[0]
-    return tit
+    tit = _strip_catalog_prose_suffix(tit)
+    return _truncate_title_at_extra_course_listing(tit)
 
 
 def _infer_title_from_transcript_tail(tail: str) -> str:
@@ -764,7 +806,8 @@ def _infer_title_from_transcript_tail(tail: str) -> str:
     s = re.sub(r"\s+", " ", s).strip()
     if len(s) > 160:
         s = s[:160].rsplit(" ", 1)[0]
-    return s
+    s = _strip_catalog_prose_suffix(s)
+    return _truncate_title_at_extra_course_listing(s)
 
 
 def parse_transcript_course_entries(text: str) -> list[tuple[str, str]]:
@@ -852,6 +895,8 @@ def merge_transcript_titles_with_course_catalog_blob(
             continue
         code_u = f"{m.group(1)} {m.group(2)}".upper()
         tit = (m.group(3) or "").strip()
+        tit = _strip_catalog_prose_suffix(tit)
+        tit = _truncate_title_at_extra_course_listing(tit)
         if tit and code_u not in from_cat:
             from_cat[code_u] = tit
     if not from_cat:
