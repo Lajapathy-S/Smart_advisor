@@ -1341,7 +1341,13 @@ def skill_metrics_alignment(
     }
 
 
-def render_skill_metrics_block(metrics: dict[str, Any]) -> None:
+def render_skill_metrics_block(
+    metrics: dict[str, Any],
+    *,
+    transcript_uploaded: bool = False,
+    completed_courses: list[str] | None = None,
+    completed_semesters: int = 0,
+) -> None:
     """Streamlit + HTML: color-coded alignment bar (Skill Alignment Metrics)."""
     st.subheader("Skill Alignment Metrics")
     pct = metrics.get("percent")
@@ -1357,22 +1363,41 @@ def render_skill_metrics_block(metrics: dict[str, Any]) -> None:
 """,
             unsafe_allow_html=True,
         )
-        return
-    src_note = (
-        "Compared against the public developer-roadmap JSON for this role (same topic family as roadmap.sh)."
-        if src == "roadmap"
-        else "Compared against a small built-in skill baseline for this role (no roadmap JSON loaded)."
-    )
-    st.markdown(
-        f"""
+    else:
+        src_note = (
+            "Compared against the public developer-roadmap JSON for this role (same topic family as roadmap.sh)."
+            if src == "roadmap"
+            else "Compared against a small built-in skill baseline for this role (no roadmap JSON loaded)."
+        )
+        st.markdown(
+            f"""
 <div class="skill-metric-wrap">
   <div class="skill-metric-label" style="color:{html.escape(color)};">{html.escape(metrics.get("label", ""))}</div>
   <div class="skill-metric-bar"><div class="skill-metric-fill" style="width:{int(pct)}%;background:{html.escape(color)};"></div></div>
   <p class="skill-metric-caption">{html.escape(src_note)} Green ≥55%, yellow 30–54%, red &lt;30% (of topics checked vs your resume).</p>
 </div>
 """,
-        unsafe_allow_html=True,
-    )
+            unsafe_allow_html=True,
+        )
+
+    codes = sorted(completed_courses or [])
+    if transcript_uploaded:
+        st.markdown("##### Courses detected from your transcript")
+        st.caption(
+            "Auto-detected from the uploaded file by matching subject codes (e.g., BUAN 6320). "
+            "Confirm against your official transcript—unusual layouts may miss or mispick codes."
+        )
+        if codes:
+            st.markdown("\n".join(f"- `{code}`" for code in codes))
+            st.caption(
+                f"Heuristic estimate of completed semesters: **{completed_semesters}** "
+                f"({len(codes)} course code(s))."
+            )
+        else:
+            st.info(
+                "No course codes in that form were found, so recommendations will not filter "
+                "out completed courses."
+            )
 
 
 def extract_course_catalog(programs_context: str) -> str:
@@ -1622,6 +1647,60 @@ def semester_count_for_degree(program_key: str, pursuing_display: str) -> int:
     return 4
 
 
+_FOUNDATION_HINTS = (
+    "foundation",
+    "fundamental",
+    "intro",
+    "introduction",
+    "principles",
+    "basic",
+    "basics",
+    "core",
+    "survey",
+    "essentials",
+)
+_ADVANCED_HINTS = (
+    "advanced",
+    "capstone",
+    "thesis",
+    "seminar",
+    "special topics",
+    "independent study",
+    "practicum",
+    "internship",
+    "strategy",
+    "architect",
+)
+
+
+def _course_level_bucket(course_line: str) -> int:
+    """
+    Bucket courses for sequencing:
+    0=fundamental, 1=intermediate/default, 2=advanced/specialized.
+    """
+    t = (course_line or "").lower()
+    if any(h in t for h in _FOUNDATION_HINTS):
+        return 0
+    if any(h in t for h in _ADVANCED_HINTS):
+        return 2
+    # Numeric heuristic: 63xx often foundational-to-mid, 64xx/65xx often advanced.
+    m = re.search(r"\b[A-Z]{2,5}\s*(\d{4})\b", (course_line or "").upper())
+    if m:
+        num = int(m.group(1))
+        if num <= 6339:
+            return 0
+        if num >= 6400:
+            return 2
+    return 1
+
+
+def order_courses_for_semesters(courses: list[str]) -> list[str]:
+    """Order likely foundational courses earlier and advanced courses later."""
+    indexed = list(enumerate(courses))
+    indexed.sort(key=lambda it: (_course_level_bucket(it[1]), it[0]))
+    return [c for _, c in indexed]
+
+
 def distribute_courses_to_semesters(
     courses: list[str], n_semesters: int
 ) -> dict[int, list[str]]:
@@ -1629,13 +1708,14 @@ def distribute_courses_to_semesters(
     n_semesters = max(1, int(n_semesters))
     if not courses:
         return {s: [] for s in range(1, n_semesters + 1)}
-    n = len(courses)
+    ordered = order_courses_for_semesters(courses)
+    n = len(ordered)
     base, extra = divmod(n, n_semesters)
     plan: dict[int, list[str]] = {}
     idx = 0
     for sem in range(1, n_semesters + 1):
         take = base + (1 if sem <= extra else 0)
-        plan[sem] = courses[idx : idx + take]
+        plan[sem] = ordered[idx : idx + take]
         idx += take
     return plan
 
@@ -2047,6 +2127,7 @@ PROGRAM CONTEXT:
         "program_key": program_key,
         "completed_courses": completed_courses,
         "completed_semesters": completed_semesters,
+        "transcript_uploaded": bool(transcript_bytes and transcript_filename),
         "error": err_msg,
     }
 
@@ -2075,19 +2156,29 @@ def render_advisor_results(bundle: dict[str, Any]) -> None:
     else:
         st.write("No major gaps detected against the selected topic list for this role.")
 
+    transcript_uploaded = bool(bundle.get("transcript_uploaded"))
+    completed_courses_preview = sorted(bundle.get("completed_courses") or [])
+    completed_semesters = int(bundle.get("completed_semesters") or 0)
+
     _sm = skill_metrics_alignment(
         bundle.get("matched_skills") or [],
         missing_skills,
         bundle.get("roadmap_slug"),
     )
-    render_skill_metrics_block(_sm)
+    render_skill_metrics_block(
+        _sm,
+        transcript_uploaded=transcript_uploaded,
+        completed_courses=completed_courses_preview,
+        completed_semesters=completed_semesters,
+    )
 
     no_match = bool(bundle.get("no_match"))
     answer = bundle.get("answer") or ""
     pursuing = bundle.get("pursuing") or ""
     target_role = bundle.get("target_role") or ""
-    completed_courses = bundle.get("completed_courses") or []
-    completed_semesters = int(bundle.get("completed_semesters") or 0)
+    completed_courses = completed_courses_preview if transcript_uploaded else (
+        bundle.get("completed_courses") or []
+    )
 
     st.subheader("Recommended JSOM Subjects for Your Goal")
     if no_match:
@@ -2107,11 +2198,6 @@ def render_advisor_results(bundle: dict[str, Any]) -> None:
             pursuing.strip(),
             answer,
             completed_semesters=completed_semesters,
-        )
-    if completed_courses:
-        st.caption(
-            f"Transcript uploaded: detected {len(completed_courses)} completed course(s), "
-            f"estimated completed semesters: {completed_semesters}."
         )
     if no_match:
         st.markdown("---")
@@ -2365,12 +2451,32 @@ def main():
                 st.session_state.chat_messages.append(
                     {"role": "user", "content": f"📄 Uploaded transcript **{tr.name}**"}
                 )
+                tr_file = _resume_file_from_bytes(t_data, tr.name)
+                tr_text = extract_resume_text(tr_file)
+                detected = extract_completed_courses_from_transcript(tr_text)
+                est_sem = estimate_completed_semesters_from_transcript(tr_text, detected)
+                if detected:
+                    shown = detected[:60]
+                    more = len(detected) - len(shown)
+                    codes_md = ", ".join(f"`{c}`" for c in shown)
+                    if more > 0:
+                        codes_md += f" — and **{more}** more"
+                    detect_note = (
+                        f"\n\nFrom this file I read **{len(detected)}** course code(s) "
+                        f"(~**{est_sem}** semesters estimated): {codes_md}."
+                    )
+                else:
+                    detect_note = (
+                        "\n\nI did not find any **SUBJECT ####** style codes in the text; "
+                        "completed courses may not be filtered until detection works for your layout."
+                    )
                 st.session_state.chat_messages.append(
                     {
                         "role": "assistant",
                         "content": (
                             "**Step 4:** What career path are you aiming for? "
                             "Select it from the dropdown below."
+                            + detect_note
                         ),
                     }
                 )
