@@ -707,21 +707,92 @@ def _first_course_code_token(text: str) -> str | None:
     return f"{m.group(1)} {m.group(2)}"
 
 
+_TRANSCRIPT_CODE_RE = re.compile(r"\b([A-Z]{2,5})\s*(\d{4})\b")
+
+
+def _infer_title_from_transcript_tail(tail: str) -> str:
+    """Best-effort course title from text after a course code on a transcript line."""
+    if not tail or not tail.strip():
+        return ""
+    s = tail.strip()
+    s = re.sub(r"^[\-–—:\|]\s*", "", s)
+    parts = re.split(r"\s{2,}|\t", s, maxsplit=1)
+    candidate = parts[0].strip()
+    if re.fullmatch(r"\d\.\d{2}|[A-F][+-]?|P|CR|W|I", candidate, re.I):
+        return ""
+    candidate = re.sub(r"\s+\d\.\d{2}\s*$", "", candidate).strip()
+    candidate = re.sub(r"\s+", " ", candidate)
+    if len(candidate) > 120:
+        candidate = candidate[:120].rsplit(" ", 1)[0]
+    return candidate
+
+
+def parse_transcript_course_entries(text: str) -> list[tuple[str, str]]:
+    """
+    Extract unique (course code, title) pairs from transcript text, in first-seen order.
+    Title is parsed from the remainder of the same line; may be empty if not detected.
+    """
+    if not (text or "").strip():
+        return []
+    titles: dict[str, str] = {}
+    order: list[str] = []
+    for line in text.splitlines():
+        line_r = line.rstrip()
+        if not line_r.strip():
+            continue
+        lu = line_r.upper()
+        for m in _TRANSCRIPT_CODE_RE.finditer(lu):
+            code = f"{m.group(1)} {m.group(2)}"
+            tail = line_r[m.end() :]
+            nm = _TRANSCRIPT_CODE_RE.search(tail.upper())
+            if nm:
+                tail = tail[: nm.start()]
+            title = _infer_title_from_transcript_tail(tail)
+            if code not in titles:
+                titles[code] = title
+                order.append(code)
+            elif title and not (titles.get(code) or "").strip():
+                titles[code] = title
+    return [(c, titles[c]) for c in order]
+
+
+def supplement_titles_from_program_text(
+    programs_context: str, entries: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """
+    Fill missing titles using CODE/title fragments from scraped JSOM program context.
+    Does not overwrite non-empty transcript titles.
+    """
+    if not (programs_context or "").strip() or not entries:
+        return entries
+    from_lines: dict[str, str] = {}
+    pat = re.compile(r"\b([A-Z]{2,5})\s*(\d{4})\b")
+    for line in programs_context.splitlines():
+        for m in pat.finditer(line):
+            code_u = f"{m.group(1)} {m.group(2)}".upper()
+            rem = line[m.end() :].strip(" -:|,")
+            tit = ""
+            if rem:
+                tit = re.split(r"[.;|]|  ", rem)[0].strip()
+                tit = re.sub(r"\s+", " ", tit)
+                if len(tit) > 90:
+                    tit = tit[:90].rsplit(" ", 1)[0]
+            if tit and code_u not in from_lines:
+                from_lines[code_u] = tit
+    out: list[tuple[str, str]] = []
+    for code, tit in entries:
+        if (tit or "").strip():
+            out.append((code, tit))
+        else:
+            out.append((code, from_lines.get(code.upper(), "")))
+    return out
+
+
 def extract_completed_courses_from_transcript(text: str) -> list[str]:
     """
     Parse transcript text and return completed course code tokens (e.g., BUAN 6320).
     """
-    if not (text or "").strip():
-        return []
-    out: list[str] = []
-    seen: set[str] = set()
-    for m in re.finditer(r"\b([A-Z]{2,5})\s*(\d{4})\b", text.upper()):
-        code = f"{m.group(1)} {m.group(2)}"
-        if code in seen:
-            continue
-        seen.add(code)
-        out.append(code)
-    return out
+    return [c for c, _ in parse_transcript_course_entries(text)]
 
 
 def estimate_completed_semesters_from_transcript(
@@ -1345,7 +1416,7 @@ def render_skill_metrics_block(
     metrics: dict[str, Any],
     *,
     transcript_uploaded: bool = False,
-    completed_courses: list[str] | None = None,
+    transcript_course_entries: list[tuple[str, str]] | None = None,
     completed_semesters: int = 0,
 ) -> None:
     """Streamlit + HTML: color-coded alignment bar (Skill Alignment Metrics)."""
@@ -1380,18 +1451,31 @@ def render_skill_metrics_block(
             unsafe_allow_html=True,
         )
 
-    codes = sorted(completed_courses or [])
+    entries = list(transcript_course_entries or [])
     if transcript_uploaded:
         st.markdown("##### Courses detected from your transcript")
         st.caption(
-            "Auto-detected from the uploaded file by matching subject codes (e.g., BUAN 6320). "
-            "Confirm against your official transcript—unusual layouts may miss or mispick codes."
+            "Course codes are parsed from the file; titles come from the transcript line when "
+            "possible, otherwise from the JSOM program page text when the code appears there. "
+            "Confirm against your official record."
         )
-        if codes:
-            st.markdown("\n".join(f"- `{code}`" for code in codes))
+        if entries:
+            lines: list[str] = []
+            for code, title in entries:
+                title = (title or "").strip()
+                if title:
+                    lines.append(
+                        f"- **{html.escape(code)}** — {html.escape(title)}"
+                    )
+                else:
+                    lines.append(
+                        f"- **{html.escape(code)}** — "
+                        f"*title not detected—verify on your transcript*"
+                    )
+            st.markdown("\n".join(lines))
             st.caption(
                 f"Heuristic estimate of completed semesters: **{completed_semesters}** "
-                f"({len(codes)} course code(s))."
+                f"({len(entries)} course(s))."
             )
         else:
             st.info(
@@ -2011,21 +2095,30 @@ def run_jsom_advisor_pipeline(
     resume_file = _resume_file_from_bytes(resume_bytes, resume_filename)
     resume_text = extract_resume_text(resume_file)
     transcript_text = ""
-    completed_courses: list[str] = []
-    completed_semesters = 0
     if transcript_bytes and transcript_filename:
         transcript_file = _resume_file_from_bytes(transcript_bytes, transcript_filename)
         transcript_text = extract_resume_text(transcript_file)
-        completed_courses = extract_completed_courses_from_transcript(transcript_text)
-        completed_semesters = estimate_completed_semesters_from_transcript(
-            transcript_text, completed_courses
-        )
+
     skills = extract_skills_hybrid(llm, resume_text)
     matched_skills, missing_skills, roadmap_slug, gap_source_note = (
         compute_skill_gaps(resume_text, skills, target_role.strip())
     )
     program_map, pursuit_warning = match_pursuing_to_programs(pursuing.strip())
     programs_context = fetch_program_context(program_map)
+
+    transcript_course_entries: list[tuple[str, str]] = []
+    completed_courses: list[str] = []
+    completed_semesters = 0
+    if transcript_text.strip():
+        transcript_course_entries = parse_transcript_course_entries(transcript_text)
+        transcript_course_entries = supplement_titles_from_program_text(
+            programs_context, transcript_course_entries
+        )
+        completed_courses = [c for c, _ in transcript_course_entries]
+        completed_semesters = estimate_completed_semesters_from_transcript(
+            transcript_text, completed_courses
+        )
+
     course_catalog = extract_course_catalog(programs_context)
     program_key = PURSUIT_TO_PROGRAM.get(pursuing.strip(), pursuing.strip())
     err_msg: str | None = None
@@ -2127,6 +2220,7 @@ PROGRAM CONTEXT:
         "program_key": program_key,
         "completed_courses": completed_courses,
         "completed_semesters": completed_semesters,
+        "transcript_course_entries": transcript_course_entries,
         "transcript_uploaded": bool(transcript_bytes and transcript_filename),
         "error": err_msg,
     }
@@ -2157,7 +2251,11 @@ def render_advisor_results(bundle: dict[str, Any]) -> None:
         st.write("No major gaps detected against the selected topic list for this role.")
 
     transcript_uploaded = bool(bundle.get("transcript_uploaded"))
-    completed_courses_preview = sorted(bundle.get("completed_courses") or [])
+    transcript_course_entries = list(bundle.get("transcript_course_entries") or [])
+    if transcript_uploaded and not transcript_course_entries and bundle.get("completed_courses"):
+        transcript_course_entries = [
+            (c, "") for c in (bundle.get("completed_courses") or [])
+        ]
     completed_semesters = int(bundle.get("completed_semesters") or 0)
 
     _sm = skill_metrics_alignment(
@@ -2168,7 +2266,7 @@ def render_advisor_results(bundle: dict[str, Any]) -> None:
     render_skill_metrics_block(
         _sm,
         transcript_uploaded=transcript_uploaded,
-        completed_courses=completed_courses_preview,
+        transcript_course_entries=transcript_course_entries,
         completed_semesters=completed_semesters,
     )
 
@@ -2176,9 +2274,6 @@ def render_advisor_results(bundle: dict[str, Any]) -> None:
     answer = bundle.get("answer") or ""
     pursuing = bundle.get("pursuing") or ""
     target_role = bundle.get("target_role") or ""
-    completed_courses = completed_courses_preview if transcript_uploaded else (
-        bundle.get("completed_courses") or []
-    )
 
     st.subheader("Recommended JSOM Subjects for Your Goal")
     if no_match:
@@ -2451,32 +2546,12 @@ def main():
                 st.session_state.chat_messages.append(
                     {"role": "user", "content": f"📄 Uploaded transcript **{tr.name}**"}
                 )
-                tr_file = _resume_file_from_bytes(t_data, tr.name)
-                tr_text = extract_resume_text(tr_file)
-                detected = extract_completed_courses_from_transcript(tr_text)
-                est_sem = estimate_completed_semesters_from_transcript(tr_text, detected)
-                if detected:
-                    shown = detected[:60]
-                    more = len(detected) - len(shown)
-                    codes_md = ", ".join(f"`{c}`" for c in shown)
-                    if more > 0:
-                        codes_md += f" — and **{more}** more"
-                    detect_note = (
-                        f"\n\nFrom this file I read **{len(detected)}** course code(s) "
-                        f"(~**{est_sem}** semesters estimated): {codes_md}."
-                    )
-                else:
-                    detect_note = (
-                        "\n\nI did not find any **SUBJECT ####** style codes in the text; "
-                        "completed courses may not be filtered until detection works for your layout."
-                    )
                 st.session_state.chat_messages.append(
                     {
                         "role": "assistant",
                         "content": (
                             "**Step 4:** What career path are you aiming for? "
                             "Select it from the dropdown below."
-                            + detect_note
                         ),
                     }
                 )
