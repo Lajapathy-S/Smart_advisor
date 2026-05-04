@@ -16,7 +16,7 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from langchain_xai import ChatXAI
+from langchain_anthropic import ChatAnthropic
 from pypdf import PdfReader
 
 try:
@@ -523,17 +523,18 @@ CAREER_PATH_OPTIONS = [
 @st.cache_resource(show_spinner=False)
 def get_llm():
     """
-    Return Grok (xAI) model if XAI_API_KEY is set.
+    Return Claude (Anthropic) model if ANTHROPIC_API_KEY is set.
     """
-    api_key = os.getenv("XAI_API_KEY")
+    api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         return None
-    model = os.getenv("XAI_MODEL", "grok-3-mini")
+    model = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
     try:
-        return ChatXAI(
+        return ChatAnthropic(
             model=model,
             temperature=0.4,
             max_retries=2,
+            anthropic_api_key=api_key,
         )
     except Exception:
         return None
@@ -2504,7 +2505,7 @@ def main():
 
     if not llm:
         st.warning(
-            "To enable recommendations, add **XAI_API_KEY** (Grok) in Streamlit Cloud "
+            "To enable recommendations, add **ANTHROPIC_API_KEY** (Claude) in Streamlit Cloud "
             "**Settings → Secrets**, or in `config/.env` locally."
         )
 
@@ -2514,7 +2515,7 @@ def main():
             st.session_state.chat_messages.append(
                 {
                     "role": "assistant",
-                    "content": "I can’t generate recommendations without **XAI_API_KEY**. Add it in Streamlit **Secrets** or `config/.env`, then choose your career path again.",
+                    "content": "I can’t generate recommendations without **ANTHROPIC_API_KEY**. Add it in Streamlit **Secrets** or `config/.env`, then choose your career path again.",
                 }
             )
             st.session_state.chat_phase = "pick_career"
