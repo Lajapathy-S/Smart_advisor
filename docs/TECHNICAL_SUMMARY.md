@@ -42,6 +42,7 @@ LlamaIndex is **not** used.
 ## 4. What is *not* LLM-based
 
 - **Resume text:** `pypdf` (PDF) or UTF-8 decode (TXT)
+- **Transcript text (optional):** `pypdf` (PDF) or UTF-8 decode (TXT), with completed-course detection (`SUBJECT ####`) and best-effort title parsing
 - **Skills from resume:** heuristics + keyword lists in `app.py` (`extract_skills_from_resume`)
 - **Skill gaps (UI):** roadmap JSON labels vs resume text (`fetch_roadmap_labels`, `compute_skill_gaps`) — no LLM call for that step
 - **Program HTML:** `requests` + `BeautifulSoup` (`fetch_program_context`)
@@ -68,6 +69,7 @@ The **JSOM Smart Advisor** main flow does **not** query Chroma; it scrapes the *
 | **Career path** | Dropdown (roadmap-aligned names) |
 | **Resume** | PDF/TXT |
 | **Output** | Skills detected, skill-gap topics, Grok recommendations (or NO_MATCH) |
+| **Transcript rendering** | Under **Skill Alignment Metrics**: detected completed courses as `CODE — Title`; recommendations exclude detected completed courses |
 | **Branding** | Optional logo from `assets/comet-smart-advisor.png` (CSS corner placement) |
 
 Roadmap topic data is loaded from GitHub JSON; the UI no longer shows an extra “explore roadmap.sh” marketing line in results (logic may still use roadmap data internally).
@@ -91,6 +93,7 @@ Roadmap topic data is loaded from GitHub JSON; the UI no longer shows an extra �
 | **Vector DB** | Optional; `scrape_catalog.py` + `initialize_db.py` |
 | **JSOM text (demo)** | Live scrape of selected program URL |
 | **Skill gaps** | Roadmap JSON topics vs resume (no LLM) |
+| **Transcript-aware filtering** | Completed transcript courses are removed from recommended course lines |
 
 ---
 

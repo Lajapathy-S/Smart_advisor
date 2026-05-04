@@ -19,6 +19,7 @@ This document provides a comprehensive technical overview of the AI Smart Adviso
 | **Skill gaps** | Topic labels from the public **`kamranahmedse/developer-roadmap`** JSON (same content family as roadmap.sh), compared to resume text + extracted skills (no LLM for this step). The results UI does not surface an extra roadmap marketing link. |
 | **Program URLs** | Canonical map: **`src/data_processing/jsom_programs.py`** (`PROGRAM_URLS`); `app.py` may use an inline fallback if package imports fail on Streamlit Cloud. |
 | **Resume** | PDF/TXT via **`pypdf`**; heuristic skill extraction. |
+| **Transcript (optional)** | PDF/TXT parsing extracts completed course codes and best-effort titles; recommendations filter out completed courses and show transcript-detected courses in metrics. |
 | **No false courses** | Model must return **`STATUS: NO_MATCH`** with a polite explanation when the degree does not align with the career path or catalog text is insufficient—no invented course lists. |
 
 **Also in the repository (legacy / alternate flows):** `src/core/rag_engine.py`, `src/core/chatbot.py`, degree planner, career mentor, and skills analyzer modules. The **RAG engine** still uses **`langchain_openai`** (OpenAI embeddings + `ChatOpenAI`) **if** you run that chat pipeline and populate Chroma with `OPENAI_API_KEY`. That path is **separate** from the **JSOM Smart Advisor** Streamlit entrypoint above.
@@ -187,8 +188,10 @@ User Query → Retriever → Document Retrieval → Context Formatting → LLM �
 - **File:** `src/frontend/app.py`
 - **Features (current JSOM Smart Advisor):**
   - Single focused flow: program dropdown, career-path dropdown, resume upload, recommendations
+  - Optional transcript upload before career-path selection
   - Live JSOM program page scraping for the selected degree
   - Skill detection from resume + roadmap-based skill gap section
+  - Transcript-based completed-course list under **Skill Alignment Metrics** (course code + title when available)
   - Custom CSS (title, subtitle, button styling)
   - Polite **no-match** handling when degree and career path do not align
 
@@ -235,6 +238,8 @@ Degree planner, career mentor, and tabbed chat/RAG UI can be wired separately; t
 **A) JSOM Smart Advisor (Streamlit):**
 - **Primary source:** live HTML from the **selected** official program URL (scraped each run).
 - **Grounding aids:** regex extraction of **course code + title** lines from that HTML when present; LLM instructions require **STATUS: NO_MATCH** instead of inventing courses.
+- **Transcript enrichment:** transcript parsing extracts `SUBJECT ####` codes and line-level title fragments, then supplements missing/short titles from selected-program HTML context and extracted catalog lines.
+- **Quality controls:** same-line multi-course spillover is clipped at the next detected course code, and common catalog prose suffixes are removed from detected titles.
 
 **B) Optional RAG pipeline:**
 - **Primary data file:** `data/jsom_catalog/catalog.json` (from `scrape_catalog.py`)
@@ -519,6 +524,25 @@ answer = chain.invoke({"context": context, "question": question})
 
 **File:** `src/degree_planning/planner.py` → `_prioritize_courses()`
 
+### 9.4 Transcript Course Detection and Filtering
+
+**Purpose:** Detect completed courses from uploaded transcripts and avoid recommending already-completed courses.
+
+**Flow (main app path):**
+1. Extract transcript text from uploaded PDF/TXT.
+2. Parse course codes in normalized format (`SUBJECT ####`) and infer title fragments from same-line text.
+3. Clip noisy tails at next detected course code and remove common catalog prose suffixes.
+4. Supplement and merge titles from selected-program scraped HTML context and catalog-style extracted lines.
+5. Filter LLM recommendations by excluding lines whose first detected course code is already completed.
+6. Display transcript-detected courses in **Skill Alignment Metrics** as `CODE — Title` (or a fallback note when title is unavailable).
+
+**Key implementation functions (`src/frontend/app.py`):**
+- `parse_transcript_course_entries()`
+- `supplement_titles_from_program_text()`
+- `merge_transcript_titles_with_course_catalog_blob()`
+- `estimate_completed_semesters_from_transcript()`
+- `render_skill_metrics_block()`
+
 ---
 
 ## 10. Testing & Quality Assurance
@@ -687,6 +711,6 @@ PartA_AI_Smart_Advisor/
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** February 2026  
+**Document Version:** 1.1  
+**Last Updated:** May 2026  
 **Author:** Development Team
