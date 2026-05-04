@@ -710,21 +710,61 @@ def _first_course_code_token(text: str) -> str | None:
 _TRANSCRIPT_CODE_RE = re.compile(r"\b([A-Z]{2,5})\s*(\d{4})\b")
 
 
+def _pick_richer_course_title(a: str, b: str) -> str:
+    """Prefer the longer, more complete title (transcript vs catalog); ties favor catalog."""
+    a, b = (a or "").strip(), (b or "").strip()
+    if not a:
+        return b
+    if not b:
+        return a
+    if len(b) > len(a):
+        return b
+    if len(a) > len(b):
+        return a
+    return b
+
+
+def _title_fragment_after_code_on_line(remainder: str) -> str:
+    """Title text from the rest of a program-page or catalog line after a course code match."""
+    if not remainder or not remainder.strip():
+        return ""
+    rem = remainder.strip()
+    for stop in (" (", " — ", "\t", "|", ";"):
+        if stop in rem:
+            rem = rem.split(stop)[0]
+    tit = re.sub(r"\s+", " ", rem).strip()
+    if len(tit) > 140:
+        tit = tit[:140].rsplit(" ", 1)[0]
+    return tit
+
+
 def _infer_title_from_transcript_tail(tail: str) -> str:
-    """Best-effort course title from text after a course code on a transcript line."""
+    """Best-effort course title from text after a course code on a transcript line.
+
+    PDF extractors often use wide spacing between columns. Do not take only the first
+    whitespace-delimited “column” after the code — that yields a single word. Keep the
+    full remainder and strip trailing credits and grade fields only.
+    """
     if not tail or not tail.strip():
         return ""
     s = tail.strip()
     s = re.sub(r"^[\-–—:\|]\s*", "", s)
-    parts = re.split(r"\s{2,}|\t", s, maxsplit=1)
-    candidate = parts[0].strip()
-    if re.fullmatch(r"\d\.\d{2}|[A-F][+-]?|P|CR|W|I", candidate, re.I):
+    # Whole remainder can be a lone credits cell — reject
+    if re.fullmatch(r"\d{1,2}\.\d{2,4}|[A-F][+-]?|P|CR|W|I|IP", s, re.I):
         return ""
-    candidate = re.sub(r"\s+\d\.\d{2}\s*$", "", candidate).strip()
-    candidate = re.sub(r"\s+", " ", candidate)
-    if len(candidate) > 120:
-        candidate = candidate[:120].rsplit(" ", 1)[0]
-    return candidate
+    # Strip trailing tabular junk: repeated passes for credit hours + letter grade etc.
+    while True:
+        prev = s
+        s = re.sub(r"\s+\d{1,2}\.\d{2,4}\s*[A-F][+-]?\s*$", "", s, flags=re.I)
+        s = re.sub(r"\s+\d{1,2}\.\d{2,4}\s*$", "", s)
+        s = re.sub(r"\s+[A-F][+-]?\s*$", "", s, flags=re.I)
+        s = re.sub(r"\s+(?:P|CR|NC|W|I|IP|S|U)\s*$", "", s, flags=re.I)
+        if s == prev:
+            break
+    s = re.sub(r"\s+", " ", s).strip()
+    if len(s) > 160:
+        s = s[:160].rsplit(" ", 1)[0]
+    return s
 
 
 def parse_transcript_course_entries(text: str) -> list[tuple[str, str]]:
@@ -760,10 +800,11 @@ def supplement_titles_from_program_text(
     programs_context: str, entries: list[tuple[str, str]]
 ) -> list[tuple[str, str]]:
     """
-    Fill missing titles using CODE/title fragments from scraped JSOM program context.
-    Does not overwrite non-empty transcript titles.
+    Merge transcript titles with CODE/title fragments from scraped JSOM program context.
+    Prefers the longer, more complete string so short PDF fragments (e.g. “Database”)
+    are replaced by full catalog-style titles when available.
     """
-    if not (programs_context or "").strip() or not entries:
+    if not entries:
         return entries
     from_lines: dict[str, str] = {}
     pat = re.compile(r"\b([A-Z]{2,5})\s*(\d{4})\b")
@@ -771,21 +812,53 @@ def supplement_titles_from_program_text(
         for m in pat.finditer(line):
             code_u = f"{m.group(1)} {m.group(2)}".upper()
             rem = line[m.end() :].strip(" -:|,")
-            tit = ""
-            if rem:
-                tit = re.split(r"[.;|]|  ", rem)[0].strip()
-                tit = re.sub(r"\s+", " ", tit)
-                if len(tit) > 90:
-                    tit = tit[:90].rsplit(" ", 1)[0]
+            tit = _title_fragment_after_code_on_line(rem) if rem else ""
             if tit and code_u not in from_lines:
                 from_lines[code_u] = tit
+    if not from_lines:
+        return entries
     out: list[tuple[str, str]] = []
     for code, tit in entries:
-        if (tit or "").strip():
-            out.append((code, tit))
-        else:
-            out.append((code, from_lines.get(code.upper(), "")))
+        sup = from_lines.get(code.upper(), "")
+        merged = _pick_richer_course_title(tit, sup)
+        out.append((code, merged))
     return out
+
+
+def merge_transcript_titles_with_course_catalog_blob(
+    course_catalog: str, entries: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """
+    Refine titles using `extract_course_catalog` lines: ``- CODE Full Title (Program)``.
+    Picks the richer of transcript vs catalog per code.
+    """
+    if not (course_catalog or "").strip() or not entries:
+        return entries
+    from_cat: dict[str, str] = {}
+    for line in course_catalog.splitlines():
+        line = line.strip()
+        if not line.startswith("- "):
+            continue
+        rest = line[2:].strip()
+        if not rest.endswith(")"):
+            continue
+        inner = rest[:-1]
+        idx = inner.rfind(" (")
+        if idx == -1:
+            continue
+        head = inner[:idx].strip()
+        m = re.match(r"^([A-Z]{2,5})\s+(\d{4})\s+(.+)$", head)
+        if not m:
+            continue
+        code_u = f"{m.group(1)} {m.group(2)}".upper()
+        tit = (m.group(3) or "").strip()
+        if tit and code_u not in from_cat:
+            from_cat[code_u] = tit
+    if not from_cat:
+        return entries
+    return [
+        (c, _pick_richer_course_title(t, from_cat.get(c.upper(), ""))) for c, t in entries
+    ]
 
 
 def extract_completed_courses_from_transcript(text: str) -> list[str]:
@@ -1505,15 +1578,8 @@ def extract_course_catalog(programs_context: str) -> str:
 
         for match in code_pattern.finditer(line):
             code = f"{match.group(1)} {match.group(2)}"
-            # Try to infer a nearby title from the text right after the code
             remainder = line[match.end() :].strip(" -:|,")
-            title = ""
-            if remainder:
-                # Keep a short phrase for readability and avoid giant fragments
-                title = re.split(r"[.;|]|  ", remainder)[0].strip()
-                title = re.sub(r"\s+", " ", title)
-                if len(title) > 90:
-                    title = title[:90].rsplit(" ", 1)[0]
+            title = _title_fragment_after_code_on_line(remainder) if remainder else ""
 
             if not title:
                 # Code present but no title fragment (common in dense HTML) — still ground the LLM
@@ -2120,6 +2186,12 @@ def run_jsom_advisor_pipeline(
         )
 
     course_catalog = extract_course_catalog(programs_context)
+    if transcript_text.strip() and transcript_course_entries:
+        transcript_course_entries = merge_transcript_titles_with_course_catalog_blob(
+            course_catalog, transcript_course_entries
+        )
+        completed_courses = [c for c, _ in transcript_course_entries]
+
     program_key = PURSUIT_TO_PROGRAM.get(pursuing.strip(), pursuing.strip())
     err_msg: str | None = None
 
