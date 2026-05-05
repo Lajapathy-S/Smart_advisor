@@ -734,13 +734,56 @@ _DEGREE_PAGE_PROSE_TAIL = re.compile(
 )
 
 
+def _strip_elective_requirements_noise(tit: str) -> str:
+    """
+    Catalog HTML often concatenates a course title with degree-plan prose on one line, e.g.
+    '...Data Science Elective Courses: 18 semester credit hours Students may choose any course
+    with a BUAN prefix'. Strip that tail so search/transcript titles stay clean and core courses
+    are not mis-tagged as electives by substring heuristics.
+    """
+    t = (tit or "").strip()
+    if not t:
+        return t
+    low = t.lower()
+    cut = low.find("elective courses:")
+    if cut > 8:
+        t = t[:cut].rstrip(" -,;:|/")
+    low = t.lower()
+    cut = low.find("students may choose")
+    if cut > 12:
+        t = t[:cut].rstrip(" -,;:|/")
+    low = t.lower()
+    # Credit-hour boilerplate without an "Elective Courses:" header (merged table cells)
+    m = re.search(
+        r"\s+\d{1,2}\s+semester credit hours?\s+students may choose\b",
+        low,
+    )
+    if m and m.start() > 12:
+        t = t[: m.start()].rstrip(" -,;:|/")
+    return t.strip()
+
+
+def _clean_advisor_answer_for_display(text: str) -> str:
+    """Remove catalog degree-plan tails from lines that contain a subject code (LLM may echo them)."""
+    if not (text or "").strip():
+        return text or ""
+    code_in_line = re.compile(r"\b[A-Z]{2,5}\s*\d{4}\b")
+    out: list[str] = []
+    for line in text.splitlines():
+        if code_in_line.search(line):
+            out.append(_strip_elective_requirements_noise(line))
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def _strip_catalog_prose_suffix(tit: str) -> str:
     """Cut degree-page boilerplate that often follows a course name on one HTML line."""
     t = (tit or "").strip()
     m = _DEGREE_PAGE_PROSE_TAIL.search(t)
     if m and m.start() > 12:
-        return t[: m.start() + 1].strip()
-    return t
+        t = t[: m.start() + 1].strip()
+    return _strip_elective_requirements_noise(t)
 
 
 def _truncate_title_at_extra_course_listing(title: str) -> str:
@@ -926,6 +969,41 @@ def estimate_completed_semesters_from_transcript(
         return max(0, len(markers))
     # Fallback heuristic: roughly 4 completed courses per term.
     return max(0, len(completed_courses) // 4)
+
+
+def looks_like_transcript_text(text: str) -> bool:
+    """
+    Heuristic guard to catch resume files uploaded in transcript step.
+    """
+    t = (text or "").strip()
+    if not t:
+        return False
+    upper = t.upper()
+    code_count = len(
+        {f"{m.group(1)} {m.group(2)}" for m in _TRANSCRIPT_CODE_RE.finditer(upper)}
+    )
+    transcript_kw = len(
+        re.findall(
+            r"\b(transcript|term|semester|gpa|grade|credit|credits|coursework|completed|enrolled)\b",
+            t,
+            flags=re.IGNORECASE,
+        )
+    )
+    resume_kw = len(
+        re.findall(
+            r"\b(experience|skills|summary|objective|project|intern|linkedin)\b",
+            t,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if code_count >= 3:
+        return True
+    if code_count >= 2 and transcript_kw >= 2:
+        return True
+    if code_count >= 1 and transcript_kw >= 3 and resume_kw == 0:
+        return True
+    return False
 
 
 def extract_skills_from_resume(text: str) -> list[str]:
@@ -1824,6 +1902,7 @@ def extract_course_lines_from_recommendation(text: str) -> list[str]:
             continue
         norm = re.sub(r"^[-*•]+\s*", "", norm).strip()
         norm = re.sub(r"^\d+\.\s*", "", norm).strip()
+        norm = _strip_elective_requirements_noise(norm)
         key = norm.lower()
         if key in seen:
             continue
@@ -1857,6 +1936,7 @@ _FOUNDATION_HINTS = (
 )
 _ADVANCED_HINTS = (
     "advanced",
+    "applied",
     "capstone",
     "thesis",
     "seminar",
@@ -1927,7 +2007,7 @@ _ELECTIVE_HINTS = (
 
 
 def _is_likely_elective(course_line: str) -> bool:
-    line = (course_line or "").lower()
+    line = _strip_elective_requirements_noise((course_line or "").strip()).lower()
     return any(h in line for h in _ELECTIVE_HINTS)
 
 
@@ -1936,9 +2016,9 @@ def _format_course_for_semester_box(course_line: str) -> str:
     Mark likely core courses with square brackets so users can distinguish
     core-looking recommendations from likely electives at a glance.
     """
-    c = (course_line or "").strip()
+    c = _strip_elective_requirements_noise((course_line or "").strip())
     if not c:
-        return c
+        return (course_line or "").strip()
     if _is_likely_elective(c):
         return c
     return f"{c} *"
@@ -2375,6 +2455,11 @@ def render_advisor_results(bundle: dict[str, Any]) -> None:
             (c, "") for c in (bundle.get("completed_courses") or [])
         ]
     completed_semesters = int(bundle.get("completed_semesters") or 0)
+    if not transcript_uploaded:
+        st.info(
+            "Transcript file upload was skipped. Recommendations are generated without "
+            "completed-course filtering."
+        )
 
     _sm = skill_metrics_alignment(
         bundle.get("matched_skills") or [],
@@ -2399,7 +2484,8 @@ def render_advisor_results(bundle: dict[str, Any]) -> None:
             "No course list is suggested for this program + career path combination "
             "(or catalog data wasn’t enough). Read the note below."
         )
-    answer_html = html.escape(answer).replace("\n", "<br/>")
+    answer_display = _clean_advisor_answer_for_display(answer)
+    answer_html = html.escape(answer_display).replace("\n", "<br/>")
     st.markdown(
         f"<div class='answer-card'>{answer_html}</div>",
         unsafe_allow_html=True,
@@ -2409,7 +2495,7 @@ def render_advisor_results(bundle: dict[str, Any]) -> None:
         render_semester_plan_flowchart(
             pk,
             pursuing.strip(),
-            answer,
+            answer_display,
             completed_semesters=completed_semesters,
         )
     if no_match:
@@ -2658,6 +2744,20 @@ def main():
             t_data = tr.getvalue()
             t_fp = f"{tr.name}:{len(t_data)}"
             if st.session_state.chat_transcript_fingerprint != t_fp:
+                tr_file = _resume_file_from_bytes(t_data, tr.name)
+                tr_text = extract_resume_text(tr_file)
+                if not looks_like_transcript_text(tr_text):
+                    st.session_state.chat_messages.append(
+                        {
+                            "role": "assistant",
+                            "content": (
+                                "The uploaded file does not look like a transcript. "
+                                "Please upload an official transcript (PDF/TXT with term/course records), "
+                                "or click **Skip transcript**."
+                            ),
+                        }
+                    )
+                    st.rerun()
                 st.session_state.chat_transcript_bytes = t_data
                 st.session_state.chat_transcript_filename = tr.name
                 st.session_state.chat_transcript_fingerprint = t_fp
