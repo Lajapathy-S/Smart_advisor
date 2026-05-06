@@ -528,7 +528,8 @@ def get_llm():
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         return None
-    model = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
+    # Claude 3.5 Sonnet IDs were retired (see Anthropic model deprecations); default to current Sonnet.
+    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
     try:
         return ChatAnthropic(
             model=model,
