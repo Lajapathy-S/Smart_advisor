@@ -520,6 +520,28 @@ CAREER_PATH_OPTIONS = [
 ]
 
 
+# Anthropic retired Claude 3.5 Sonnet; stale deploy secrets often still reference old aliases → API 404.
+_DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+_RETIRED_OR_ALIAS_ANTHROPIC_MODELS = frozenset(
+    {
+        "claude-3-5-sonnet-latest",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-sonnet-20240620",
+        "claude-3-7-sonnet-20250219",
+    }
+)
+
+
+def _resolve_anthropic_model_id(raw: str | None) -> str:
+    """Map retired model IDs and empty env to a supported default."""
+    m = (raw or "").strip()
+    if not m:
+        return _DEFAULT_ANTHROPIC_MODEL
+    if m.lower() in _RETIRED_OR_ALIAS_ANTHROPIC_MODELS:
+        return _DEFAULT_ANTHROPIC_MODEL
+    return m
+
+
 @st.cache_resource(show_spinner=False)
 def get_llm():
     """
@@ -528,8 +550,8 @@ def get_llm():
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         return None
-    # Claude 3.5 Sonnet IDs were retired (see Anthropic model deprecations); default to current Sonnet.
-    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    raw_model = os.getenv("ANTHROPIC_MODEL") or os.getenv("LLM_MODEL")
+    model = _resolve_anthropic_model_id(raw_model)
     try:
         return ChatAnthropic(
             model=model,
