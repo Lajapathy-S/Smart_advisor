@@ -6,7 +6,7 @@
 
 ## Features (JSOM Smart Advisor — `src/frontend/app.py`)
 
-- **Program selection** — Dropdown maps to official JSOM URLs (`src/data_processing/jsom_programs.py`, with inline fallback in `app.py` for some deploy environments).
+- **Program selection** — Dropdown maps to official Jindal School of Management URLs (`src/data_processing/jsom_programs.py`, with inline fallback in `app.py` for some deploy environments).
 - **Live catalog context** — `requests` + **BeautifulSoup** scrape the selected program page; optional regex extraction of **course code + title** lines to anchor the LLM.
 - **Resume** — PDF/TXT; **heuristic** skill extraction (no LLM for parsing).
 - **Skill gaps** — Topics from public **developer-roadmap** JSON on GitHub, compared to resume text.
