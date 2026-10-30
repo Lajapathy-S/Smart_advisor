@@ -552,10 +552,10 @@ def get_llm():
         return None
     raw_model = os.getenv("ANTHROPIC_MODEL") or os.getenv("LLM_MODEL")
     model = _resolve_anthropic_model_id(raw_model)
+    # Claude 4.x Messages API rejects `temperature` ("Extra inputs are not permitted").
     try:
         return ChatAnthropic(
             model=model,
-            temperature=0.4,
             max_retries=2,
             anthropic_api_key=api_key,
         )
